@@ -7,4 +7,4 @@ BD: Misici, Simici, Ponorean, Grama; - done/improvements
 Embedded: Ghioc, Zemora, Goiceanu; - not done
 Mobile: Rahela, Ghioc, Goiceanu; - in progress
 IoT: Rahela, Zemora, Simici, Goiceanu; -not done
-Server: Ghioc, Grama.  - done
+Server: Ghioc, Grama, Zemora.  - done
