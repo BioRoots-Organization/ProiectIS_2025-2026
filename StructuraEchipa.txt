@@ -2,9 +2,9 @@ Team Leader: Ghioc Radu
 Adjunct: Goiceanu Andrei
 Secretara: Misici Miliana
 
-Web: Grama, Zemora, Ponorean, Vincent;
-BD: Misici, Simici, Ponorean, Grama;
-Embedded: Ghioc, Zemora, Goiceanu;
-Mobile: Rahela, Ghioc, Goiceanu;
-IoT: Rahela, Zemora, Simici, Goiceanu;
-Server: Ghioc, Grama.
+Web: Grama, Zemora, Ponorean, Vincent; - in progress 
+BD: Misici, Simici, Ponorean, Grama; - done/improvements
+Embedded: Ghioc, Zemora, Goiceanu; - not done
+Mobile: Rahela, Ghioc, Goiceanu; - in progress
+IoT: Rahela, Zemora, Simici, Goiceanu; -not done
+Server: Ghioc, Grama.  - done
