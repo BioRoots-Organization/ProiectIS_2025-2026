@@ -13,16 +13,20 @@ app.use(express.json());
 // ==========================================
 
 // LINK MODIFICAT: Varianta "Old School" fara +srv, care rezolva ETIMEOUT pe Render
-const mongoURI = "mongodb+srv://ProiectIS:ISproiect@cluster0.7dqbppa.mongodb.net/MedicalDB?retryWrites=true&w=majority&appName=Cluster0";
+// ==========================================
+// CONECTARE BAZA DE DATE (MONGODB)
+// ==========================================
 
-// Conectare cu setari de siguranta si Timeout mai scurt
+// Așa e corect pentru GitHub public:
+const mongoURI = process.env.MONGO_URI; 
+
 mongoose.connect(mongoURI, {
-  serverSelectionTimeoutMS: 5000 // Incearca sa se reconecteze rapid, nu asteapta blocat
+  serverSelectionTimeoutMS: 30000, 
+  connectTimeoutMS: 30000
 })
   .then(() => console.log('✅ Conectare la MongoDB reușită!'))
   .catch(err => console.error('❌ Eroare la conectare MongoDB:', err));
-
-
+  
 // ==========================================
 // 1. SCHEME BAZA DE DATE (MODELE)
 // ==========================================
