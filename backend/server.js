@@ -3,15 +3,22 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+
+// Setare CORS explicita pentru a primi cereri de pe web si mobil (scapam de eroarea cu rosu)
+app.use(cors({ origin: '*' }));
 app.use(express.json()); 
 
 // ==========================================
 // CONECTARE BAZA DE DATE (MONGODB)
 // ==========================================
-const mongoURI = "mongodb+srv://ProiectIS:ProiectIS1234@cluster0.7dqbppa.mongodb.net/MedicalDB?retryWrites=true&w=majority&appName=Cluster0";
 
-mongoose.connect(mongoURI)
+// LINK MODIFICAT: Varianta "Old School" fara +srv, care rezolva ETIMEOUT pe Render
+const mongoURI = "mongodb://ProiectIS:ProiectIS1234@cluster0-shard-00-00.7dqbppa.mongodb.net:27017,cluster0-shard-00-01.7dqbppa.mongodb.net:27017,cluster0-shard-00-02.7dqbppa.mongodb.net:27017/MedicalDB?ssl=true&authSource=admin&retryWrites=true&w=majority";
+
+// Conectare cu setari de siguranta si Timeout mai scurt
+mongoose.connect(mongoURI, {
+  serverSelectionTimeoutMS: 5000 // Incearca sa se reconecteze rapid, nu asteapta blocat
+})
   .then(() => console.log('✅ Conectare la MongoDB reușită!'))
   .catch(err => console.error('❌ Eroare la conectare MongoDB:', err));
 
