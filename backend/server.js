@@ -13,7 +13,7 @@ app.use(express.json());
 // ==========================================
 
 // LINK MODIFICAT: Varianta "Old School" fara +srv, care rezolva ETIMEOUT pe Render
-const mongoURI = process.env.MONGO_URI;
+const mongoURI = "mongodb+srv://ProiectIS:ISproiect@cluster0.7dqbppa.mongodb.net/MedicalDB?retryWrites=true&w=majority&appName=Cluster0";
 
 // Conectare cu setari de siguranta si Timeout mai scurt
 mongoose.connect(mongoURI, {
