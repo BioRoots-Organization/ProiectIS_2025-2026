@@ -45,9 +45,16 @@ function Login() {
 
       if (date.rol === 'medic') {
         navigate('/medic')
+      } else if (date.rol === 'admin') {
+        navigate('/admin')
       } else {
-        const fisaConfigurata = sessionStorage.getItem('fisaConfigurata')
-        navigate(fisaConfigurata ? '/pacient' : '/configurare')
+        try {
+          await api.get(`/pacient-fisa/${date._id}`)
+          sessionStorage.setItem('fisaConfigurata', 'true')
+          navigate('/pacient')
+        } catch {
+          navigate('/configurare')
+        }
       }
 
     } catch (err) {
@@ -85,7 +92,13 @@ function Login() {
       sessionStorage.setItem('uid', userCreat._id) // _id generat de MongoDB
       sessionStorage.setItem('nume', nume)
       
-      navigate(rol === 'medic' ? '/medic' : '/configurare')
+      if (rol === 'medic') {
+        navigate('/medic')
+      } else if (rol === 'admin') {
+        navigate('/admin')
+      } else {
+        navigate('/configurare')
+      }
 
     } catch (err) {
       if (err.response && err.response.data) {
@@ -112,7 +125,7 @@ function Login() {
         </div>
 
         {/* Selector rol */}
-        <div className="flex rounded-xl overflow-hidden border border-gray-200 mb-6">
+        <div className="grid grid-cols-3 rounded-xl overflow-hidden border border-gray-200 mb-6">
           <button
             onClick={() => setRol('medic')}
             className={`flex-1 py-2 text-sm font-medium transition-colors ${
@@ -128,6 +141,14 @@ function Login() {
             }`}
           >
             Pacient
+          </button>
+          <button
+            onClick={() => setRol('admin')}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              rol === 'admin' ? 'bg-purple-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Administrator
           </button>
         </div>
 

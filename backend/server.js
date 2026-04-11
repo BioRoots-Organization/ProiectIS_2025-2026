@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+require('dotenv').config();
 
 const app = express();
 
@@ -18,14 +20,41 @@ app.use(express.json());
 // ==========================================
 
 // Așa e corect pentru GitHub public:
-const mongoURI = process.env.MONGO_URI; 
+const mongoURI = process.env.MONGO_URI ? process.env.MONGO_URI.trim() : '';
+const usesPlaceholderMongoUri =
+  !mongoURI ||
+  mongoURI.includes('<username>') ||
+  mongoURI.includes('<password>') ||
+  mongoURI.includes('<cluster-name>') ||
+  mongoURI.includes('<database-name>');
 
-mongoose.connect(mongoURI, {
-  serverSelectionTimeoutMS: 30000, 
-  connectTimeoutMS: 30000
-})
-  .then(() => console.log('✅ Conectare la MongoDB reușită!'))
-  .catch(err => console.error('❌ Eroare la conectare MongoDB:', err));
+let inMemoryMongoServer = null;
+
+async function connectToDatabase() {
+  const connectionOptions = {
+    serverSelectionTimeoutMS: 30000,
+    connectTimeoutMS: 30000,
+  };
+
+  if (!usesPlaceholderMongoUri) {
+    try {
+      await mongoose.connect(mongoURI, connectionOptions);
+      console.log('✅ Conectare la MongoDB reușită!');
+      return 'mongo';
+    } catch (error) {
+      console.error('❌ Eroare la conectare MongoDB:', error);
+      if (process.env.NODE_ENV === 'production') {
+        throw error;
+      }
+    }
+  }
+
+  console.warn('⚠️ Folosesc MongoDB in-memory pentru testare locală.');
+  inMemoryMongoServer = await MongoMemoryServer.create();
+  await mongoose.connect(inMemoryMongoServer.getUri(), connectionOptions);
+  console.log('✅ Conectare la MongoDB in-memory reușită!');
+  return 'memory';
+}
   
 // ==========================================
 // 1. SCHEME BAZA DE DATE (MODELE)
@@ -45,7 +74,7 @@ const UserSchema = new mongoose.Schema({
   nume: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   parola: { type: String, required: true },
-  rol: { type: String, enum: ['medic', 'pacient'], required: true },
+  rol: { type: String, enum: ['admin', 'medic', 'pacient'], required: true },
   data_creare: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema, 'utilizatori');
@@ -296,9 +325,215 @@ app.get('/api/recomandari/:pacientId', async (req, res) => {
 
 
 // ==========================================
+// 6. RUTE ADMINISTRATOR
+// ==========================================
+
+// Dashboard sumar pentru administrator
+app.get('/api/admin/overview', async (req, res) => {
+  try {
+    const [
+      totalUtilizatori,
+      totalMedici,
+      totalPacientiUser,
+      totalPacientiCuFisa,
+      totalMasuratori,
+      alarme,
+      avertizari,
+      normale,
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ rol: 'medic' }),
+      User.countDocuments({ rol: 'pacient' }),
+      Pacient.countDocuments(),
+      Masuratoare.countDocuments(),
+      Pacient.countDocuments({ status: 'alarm' }),
+      Pacient.countDocuments({ status: 'warn' }),
+      Pacient.countDocuments({ status: 'ok' }),
+    ]);
+
+    res.json({
+      totalUtilizatori,
+      totalMedici,
+      totalPacientiUser,
+      totalPacientiCuFisa,
+      totalMasuratori,
+      statusPacienti: { alarme, avertizari, normale },
+    });
+  } catch (error) {
+    console.error('Eroare /api/admin/overview:', error);
+    res.status(500).json({ mesaj: 'Eroare la preluarea sumarului admin.', detalii: error.message });
+  }
+});
+
+// Lista utilizatorilor pentru administrator
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-parola')
+      .sort({ data_creare: -1 });
+    res.json(users);
+  } catch (error) {
+    console.error('Eroare /api/admin/users:', error);
+    res.status(500).json({ mesaj: 'Eroare la preluarea utilizatorilor.', detalii: error.message });
+  }
+});
+
+// Administratorul poate schimba rolul unui utilizator
+app.put('/api/admin/users/:id/role', async (req, res) => {
+  try {
+    const { rol } = req.body;
+    const roluriPermise = ['admin', 'medic', 'pacient'];
+
+    if (!roluriPermise.includes(rol)) {
+      return res.status(400).json({ mesaj: 'Rol invalid.' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { rol },
+      { new: true }
+    ).select('-parola');
+
+    if (!user) {
+      return res.status(404).json({ mesaj: 'Utilizatorul nu a fost găsit.' });
+    }
+
+    res.json({ mesaj: 'Rol actualizat cu succes.', utilizator: user });
+  } catch (error) {
+    console.error('Eroare /api/admin/users/:id/role:', error);
+    res.status(500).json({ mesaj: 'Eroare la actualizarea rolului.', detalii: error.message });
+  }
+});
+
+// Administratorul poate vedea toate fisele pacientilor, cu date despre medic
+app.get('/api/admin/pacienti', async (req, res) => {
+  try {
+    const pacienti = await Pacient.find().sort({ nume: 1, prenume: 1 });
+    const medici = await User.find({ rol: 'medic' }).select('nume');
+    const mapMedici = new Map(medici.map((m) => [String(m._id), m.nume]));
+
+    const pacientiCuMedic = pacienti.map((p) => ({
+      ...p.toObject(),
+      medicNume: mapMedici.get(p.medicUid) || 'Necunoscut',
+    }));
+
+    res.json(pacientiCuMedic);
+  } catch (error) {
+    console.error('Eroare /api/admin/pacienti:', error);
+    res.status(500).json({ mesaj: 'Eroare la preluarea pacienților pentru admin.', detalii: error.message });
+  }
+});
+
+
+// ==========================================
+// 7. DATE DEMO PENTRU DEZVOLTARE
+// ==========================================
+
+async function seedDevelopmentData() {
+  const existingUsers = await User.countDocuments();
+  if (existingUsers > 0) {
+    return;
+  }
+
+  const [adminUser, medicUser, pacientUser] = await User.create([
+    {
+      nume: 'Admin Demo',
+      email: 'admin@demo.ro',
+      parola: 'admin123',
+      rol: 'admin',
+    },
+    {
+      nume: 'Dr. Ionescu',
+      email: 'medic@demo.ro',
+      parola: 'medic123',
+      rol: 'medic',
+    },
+    {
+      nume: 'Maria Popescu',
+      email: 'pacient@demo.ro',
+      parola: 'pacient123',
+      rol: 'pacient',
+    },
+  ]);
+
+  const fisaPacient = await Pacient.create({
+    nume: 'Popescu',
+    prenume: 'Maria',
+    varsta: 52,
+    cnp: '2520508123456',
+    telefon: '0722000000',
+    email: 'pacient@demo.ro',
+    strada: 'Str. Clinicii nr. 10',
+    oras: 'Cluj-Napoca',
+    judet: 'Cluj',
+    profesie: 'Profesor',
+    locMunca: 'Liceul Central',
+    istoricMedical: 'Hipertensiune arteriala controlata medicamentos.',
+    alergii: 'Penicilina',
+    consultatiiCardiologice: 'Control efectuat in luna martie.',
+    pulsMin: 60,
+    pulsMax: 100,
+    tempMin: 36,
+    tempMax: 37.5,
+    puls: 74,
+    temperatura: 36.7,
+    ecg: 'Normal',
+    status: 'ok',
+    medicUid: medicUser._id.toString(),
+    pacientUid: pacientUser._id.toString(),
+  });
+
+  await Masuratoare.insertMany([
+    {
+      id_pacient: fisaPacient._id.toString(),
+      puls_mediu: 71,
+      temperatura_medie: 36.5,
+      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
+    },
+    {
+      id_pacient: fisaPacient._id.toString(),
+      puls_mediu: 74,
+      temperatura_medie: 36.7,
+      timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    },
+    {
+      id_pacient: fisaPacient._id.toString(),
+      puls_mediu: 76,
+      temperatura_medie: 36.6,
+      timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    },
+  ]);
+
+  await Recomandare.create({
+    pacientId: fisaPacient._id.toString(),
+    medicUid: medicUser._id.toString(),
+    tip: 'Plimbare usoara',
+    durata: '30 min/zi',
+    indicatii: 'Ritmul trebuie sa fie moderat, fara efort intens.',
+  });
+
+  console.log('✅ Date demo create pentru admin, medic si pacient.');
+}
+
+// ==========================================
 // START SERVER
 // ==========================================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Serverul rulează perfect pe portul ${PORT}`);
-});
+async function startServer() {
+  try {
+    const databaseMode = await connectToDatabase();
+
+    if (databaseMode === 'memory') {
+      await seedDevelopmentData();
+    }
+
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Serverul rulează perfect pe portul ${PORT}`);
+    });
+  } catch (error) {
+    console.error('❌ Nu s-a putut porni serverul:', error);
+    process.exit(1);
+  }
+}
+
+startServer();

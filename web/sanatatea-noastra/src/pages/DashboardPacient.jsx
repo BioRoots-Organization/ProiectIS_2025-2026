@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api' // ÎNLOCUIM FIREBASE CU API-UL NOSTRU
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Heart, Thermometer, Activity, Bell, LogOut, User, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Heart, Thermometer, Activity, Bell, LogOut, User, CheckCircle } from 'lucide-react'
 
 function DashboardPacient() {
   const [paginaActiva, setPaginaActiva] = useState('acasa')
   const [pacient, setPacient] = useState(null)
+  const [recomandari, setRecomandari] = useState([])
   const [datePuls, setDatePuls] = useState([])
   const [dateTemperatura, setDateTemperatura] = useState([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +48,9 @@ function DashboardPacient() {
                valoare: m.temperatura || m.temperatura_medie 
              })))
           }
+
+          const responseRecomandari = await api.get(`/recomandari/${datePacient._id}`)
+          setRecomandari(responseRecomandari.data || [])
         }
       } catch (err) {
         // Ignoram eroarea daca pacientul nu si-a configurat inca fisa (CNP)
@@ -233,25 +237,18 @@ function DashboardPacient() {
           <div className="space-y-4">
             <div className="bg-white rounded-2xl p-5 shadow-sm">
               <h2 className="font-semibold text-gray-800 mb-4">Recomandările medicului</h2>
-              {pacient ? (
+              {pacient && recomandari.length > 0 ? (
                 <div className="space-y-3">
-                  {[
-                    { icon: '🚴', tip: 'Bicicletă', durata: '30 min/zi', indicatii: 'Ritm moderat, evitați pantele', facut: true },
-                    { icon: '🚶', tip: 'Plimbare', durata: '45 min/zi', indicatii: 'Dimineața, înainte de masă', facut: false },
-                    { icon: '🏋️', tip: 'Exerciții fizice', durata: '20 min/zi', indicatii: 'Exerciții ușoare de stretching', facut: false },
-                  ].map((rec, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                  {recomandari.map((rec) => (
+                    <div key={rec._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                       <div className="flex items-center gap-3">
-                        <span className="text-2xl">{rec.icon}</span>
+                        <span className="text-2xl">🏥</span>
                         <div>
                           <p className="text-sm font-medium text-gray-800">{rec.tip} — {rec.durata}</p>
                           <p className="text-xs text-gray-500">{rec.indicatii}</p>
                         </div>
                       </div>
-                      {rec.facut
-                        ? <CheckCircle size={20} className="text-green-500" />
-                        : <div className="w-5 h-5 rounded-full border-2 border-gray-300" />
-                      }
+                      <CheckCircle size={20} className="text-green-500" />
                     </div>
                   ))}
                 </div>

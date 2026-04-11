@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-// Aici punem linkul catre serverul tau Node.js de pe Render
-const API_URL = 'https://beckend-medical.onrender.com/api'; 
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://beckend-medical.onrender.com/api');
 
 const api = axios.create({
   baseURL: API_URL,
