@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 require('dotenv').config();
+const mqtt = require('mqtt');
 
 const app = express();
 
@@ -214,8 +215,23 @@ app.post('/api/login', async (req, res) => {
 // Medicul preia lista cu toti pacientii lui
 app.get('/api/pacienti/:medicUid', async (req, res) => {
   try {
-    const pacienti = await Pacient.find({ medicUid: req.params.medicUid });
-    res.json(pacienti);
+    // Folosim .lean() pentru a lucra cu obiecte simple, mai rapid
+    const pacienti = await Pacient.find({ medicUid: req.params.medicUid }).lean();
+
+    // Pentru fiecare pacient, căutăm cea mai recentă măsurătoare pentru a afișa date live
+    const pacientiActualizati = await Promise.all(pacienti.map(async (pacient) => {
+      const ultimaMasuratoare = await Masuratoare.findOne({ id_pacient: pacient._id.toString() }).sort({ timestamp: -1 });
+      
+      if (ultimaMasuratoare) {
+        return {
+          ...pacient,
+          puls: ultimaMasuratoare.puls_mediu || pacient.puls,
+          temperatura: ultimaMasuratoare.temperatura_medie || pacient.temperatura,
+        };
+      }
+      return pacient; // Returnează pacientul original dacă nu are măsurători
+    }));
+    res.json(pacientiActualizati);
   } catch (error) {
     res.status(500).json({ mesaj: "Eroare la preluarea listei de pacienți." });
   }
@@ -513,7 +529,44 @@ async function seedDevelopmentData() {
   });
 
   console.log('✅ Date demo create pentru admin, medic si pacient.');
+  console.log('\n======================================================');
+  console.log(`🔑 [ID PACIENT PENTRU MQTT]: ${fisaPacient._id.toString()}`);
+  console.log('Folosiți acest ID în MQTT Explorer la "id_pacient" !');
+  console.log('======================================================\n');
 }
+
+// ==========================================
+// 8. INTEGRARE MQTT BROKER
+// ==========================================
+
+// Folosim un broker public gratuit pentru testare. 
+// Pentru producție, îți poți face cont pe HiveMQ Cloud (gratuit) și pui aici URL-ul lor.
+const mqttBrokerUrl = 'mqtt://test.mosquitto.org';
+const mqttClient = mqtt.connect(mqttBrokerUrl);
+
+mqttClient.on('connect', () => {
+  console.log(`📡 Conectat la brokerul MQTT: ${mqttBrokerUrl}`);
+  // Ne abonăm la topicul pe care senzorii hardware vor trimite datele
+  mqttClient.subscribe('sanatate/senzori/date', (err) => {
+    if (err) console.error('❌ Eroare la abonare MQTT:', err);
+    else console.log('📡 Abonat cu succes la topicul "sanatate/senzori/date"');
+  });
+});
+
+mqttClient.on('message', async (topic, message) => {
+  try {
+    // Convertim mesajul (care vine ca Buffer/bytes) în format JSON (text)
+    const dateSenzor = JSON.parse(message.toString());
+    console.log(`📥 [MQTT] Date primite pe ${topic}:`, dateSenzor);
+    
+    // Salvăm datele în baza de date MongoDB (folosind Modelul tău "Masuratoare")
+    const masuratoareNoua = new Masuratoare(dateSenzor);
+    await masuratoareNoua.save();
+    console.log('✅ [MQTT] Date salvate în baza de date cu succes!');
+  } catch (error) {
+    console.error('❌ [MQTT] Eroare la procesarea datelor:', error.message);
+  }
+});
 
 // ==========================================
 // START SERVER

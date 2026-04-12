@@ -21,19 +21,30 @@ function FisaPacient() {
   useEffect(() => {
     const incarcaDate = async () => {
       try {
+        let datePacient = null;
         // 1. Cerem datele pacientului de la server
         const docSnap = await api.get(`/pacient-detalii/${id}`)
         if (docSnap.data) {
-          setPacient(docSnap.data)
+          datePacient = docSnap.data;
         }
 
         // 2. Cerem masuratorile pentru grafice
         const snapM = await api.get(`/masuratori/${id}`)
-        if (snapM.data) {
+        if (snapM.data && snapM.data.length > 0) {
           const masuratori = snapM.data.sort((a, b) => {
             if(a.ora && b.ora) return a.ora.localeCompare(b.ora);
             return new Date(a.timestamp) - new Date(b.timestamp);
           })
+          
+          // Suprascriem valorile afișate cu cele mai recente măsurători de la senzor
+          if (datePacient) {
+            const ultima = masuratori[masuratori.length - 1];
+            datePacient = {
+              ...datePacient,
+              puls: ultima.puls || ultima.puls_mediu || datePacient.puls,
+              temperatura: ultima.temperatura || ultima.temperatura_medie || datePacient.temperatura
+            };
+          }
           
           setDatePuls(masuratori.map(m => ({ 
             ora: m.ora || new Date(m.timestamp).getHours() + ':00', 
@@ -44,6 +55,10 @@ function FisaPacient() {
             ora: m.ora || new Date(m.timestamp).getHours() + ':00', 
             valoare: m.temperatura || m.temperatura_medie 
           })))
+        }
+
+        if (datePacient) {
+          setPacient(datePacient);
         }
 
         // 3. Cerem recomandarile de la medic
@@ -59,6 +74,10 @@ function FisaPacient() {
     }
     
     incarcaDate()
+
+    // Setăm un timer pentru a actualiza datele la fiecare 5 secunde (Live Update)
+    const interval = setInterval(incarcaDate, 5000);
+    return () => clearInterval(interval);
   }, [id])
 
   const handleEdit = () => {

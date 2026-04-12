@@ -68,6 +68,10 @@ function DashboardMedic() {
 
   useEffect(() => {
     incarcaPacienti()
+
+    // Adăugăm un timer pentru a reîncărca lista de pacienți periodic
+    const interval = setInterval(incarcaPacienti, 5000);
+    return () => clearInterval(interval);
   }, [])
 
   const statusColor = (status) => {

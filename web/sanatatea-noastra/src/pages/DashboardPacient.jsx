@@ -23,19 +23,26 @@ function DashboardPacient() {
         const responseFisa = await api.get(`/pacient-fisa/${uid}`)
         
         if (responseFisa.data) {
-          const datePacient = responseFisa.data
-          setPacient(datePacient)
+          let datePacient = responseFisa.data
 
           // Acum cerem masuratorile pentru ID-ul fisei (care in MongoDB e _id)
           const responseMasuratori = await api.get(`/masuratori/${datePacient._id}`)
           
-          if (responseMasuratori.data) {
+          if (responseMasuratori.data && responseMasuratori.data.length > 0) {
              const masuratori = responseMasuratori.data
                // Sortăm după timestamp / oră, dacă e cazul
                .sort((a, b) => {
                   if(a.ora && b.ora) return a.ora.localeCompare(b.ora);
                   return new Date(a.timestamp) - new Date(b.timestamp);
                })
+
+             // Extragem cea mai recentă măsurătoare pentru a actualiza cardurile din Acasă
+             const ultima = masuratori[masuratori.length - 1];
+             datePacient = {
+               ...datePacient,
+               puls: ultima.puls || ultima.puls_mediu || datePacient.puls,
+               temperatura: ultima.temperatura || ultima.temperatura_medie || datePacient.temperatura
+             };
 
              // Mapăm datele pentru Recharts
              setDatePuls(masuratori.map(m => ({ 
@@ -48,6 +55,8 @@ function DashboardPacient() {
                valoare: m.temperatura || m.temperatura_medie 
              })))
           }
+          
+          setPacient(datePacient)
 
           const responseRecomandari = await api.get(`/recomandari/${datePacient._id}`)
           setRecomandari(responseRecomandari.data || [])
@@ -62,6 +71,10 @@ function DashboardPacient() {
     }
     
     incarcaDate()
+
+    // Setăm un timer pentru a actualiza datele la fiecare 5 secunde (Live Update)
+    const interval = setInterval(incarcaDate, 5000);
+    return () => clearInterval(interval);
   }, [uid])
 
   const prenumeScurt = nume.split(' ')[0]
