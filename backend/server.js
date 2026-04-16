@@ -543,39 +543,6 @@ async function seedDevelopmentData() {
 }
 
 // ==========================================
-// 8. INTEGRARE MQTT BROKER
-// ==========================================
-
-// Folosim un broker public gratuit pentru testare. 
-// Pentru producție, îți poți face cont pe HiveMQ Cloud (gratuit) și pui aici URL-ul lor.
-const mqttBrokerUrl = 'mqtt://test.mosquitto.org';
-const mqttClient = mqtt.connect(mqttBrokerUrl);
-
-mqttClient.on('connect', () => {
-  console.log(`📡 Conectat la brokerul MQTT: ${mqttBrokerUrl}`);
-  // Ne abonăm la topicul pe care senzorii hardware vor trimite datele
-  mqttClient.subscribe('sanatate/senzori/date', (err) => {
-    if (err) console.error('❌ Eroare la abonare MQTT:', err);
-    else console.log('📡 Abonat cu succes la topicul "sanatate/senzori/date"');
-  });
-});
-
-mqttClient.on('message', async (topic, message) => {
-  try {
-    // Convertim mesajul (care vine ca Buffer/bytes) în format JSON (text)
-    const dateSenzor = JSON.parse(message.toString());
-    console.log(`📥 [MQTT] Date primite pe ${topic}:`, dateSenzor);
-    
-    // Salvăm datele în baza de date MongoDB (folosind Modelul tău "Masuratoare")
-    const masuratoareNoua = new Masuratoare(dateSenzor);
-    await masuratoareNoua.save();
-    console.log('✅ [MQTT] Date salvate în baza de date cu succes!');
-  } catch (error) {
-    console.error('❌ [MQTT] Eroare la procesarea datelor:', error.message);
-  }
-});
-
-// ==========================================
 // START SERVER
 // ==========================================
 async function startServer() {
@@ -585,6 +552,39 @@ async function startServer() {
     if (databaseMode === 'memory') {
       await seedDevelopmentData();
     }
+
+    // ==========================================
+    // 8. INTEGRARE MQTT BROKER
+    // ==========================================
+
+    // Folosim un broker public gratuit pentru testare.
+    // Pentru producție, îți poți face cont pe HiveMQ Cloud (gratuit) și pui aici URL-ul lor.
+    const mqttBrokerUrl = 'mqtt://test.mosquitto.org';
+    const mqttClient = mqtt.connect(mqttBrokerUrl);
+
+    mqttClient.on('connect', () => {
+      console.log(`📡 Conectat la brokerul MQTT: ${mqttBrokerUrl}`);
+      // Ne abonăm la topicul pe care senzorii hardware vor trimite datele
+      mqttClient.subscribe('sanatate/senzori/date', (err) => {
+        if (err) console.error('❌ Eroare la abonare MQTT:', err);
+        else console.log('📡 Abonat cu succes la topicul "sanatate/senzori/date"');
+      });
+    });
+
+    mqttClient.on('message', async (topic, message) => {
+      try {
+        // Convertim mesajul (care vine ca Buffer/bytes) în format JSON (text)
+        const dateSenzor = JSON.parse(message.toString());
+        console.log(`📥 [MQTT] Date primite pe ${topic}:`, dateSenzor);
+
+        // Salvăm datele în baza de date MongoDB (folosind Modelul tău "Masuratoare")
+        const masuratoareNoua = new Masuratoare(dateSenzor);
+        await masuratoareNoua.save();
+        console.log('✅ [MQTT] Date salvate în baza de date cu succes!');
+      } catch (error) {
+        console.error('❌ [MQTT] Eroare la procesarea datelor:', error.message);
+      }
+    });
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, '0.0.0.0', () => {
