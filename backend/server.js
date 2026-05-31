@@ -120,6 +120,18 @@ const RecomandareSchema = new mongoose.Schema({
 });
 const Recomandare = mongoose.model('Recomandare', RecomandareSchema, 'recomandari');
 
+// Schema Alarme
+const AlarmaSchema = new mongoose.Schema({
+  pacientId: { type: String, required: true },
+  tip: { type: String, enum: ['alarm', 'warn'], required: true },
+  mesaj: { type: String, required: true },
+  puls: Number,
+  temperatura: Number,
+  rezolvata: { type: Boolean, default: false },
+  timestamp: { type: Date, default: Date.now }
+});
+const Alarma = mongoose.model('Alarma', AlarmaSchema, 'alarme');
+
 
 // ==========================================
 // 2. RUTE PENTRU IOT (SENZORI ARDUINO)
@@ -336,6 +348,57 @@ app.get('/api/recomandari/:pacientId', async (req, res) => {
     res.json(recomandari);
   } catch (error) {
     res.status(500).json({ mesaj: "Eroare la preluarea recomandărilor." });
+  }
+});
+
+
+// ==========================================
+// 6. RUTE PENTRU ALARME
+// ==========================================
+
+// Salveaza o alarma noua (apelata de frontend cand detecteaza valori in afara limitelor)
+app.post('/api/alarme', async (req, res) => {
+  try {
+    const { pacientId, tip, mesaj, puls, temperatura } = req.body;
+
+    // Verifica daca exista deja o alarma activa (nerezolvata) de acelasi tip pentru acest pacient
+    // ca sa nu salvam duplicate la fiecare refresh de 5 secunde
+    const alarmaExistenta = await Alarma.findOne({ 
+      pacientId, 
+      tip, 
+      rezolvata: false,
+      timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // ultima 5 minute
+    });
+
+    if (alarmaExistenta) {
+      return res.status(200).json({ mesaj: 'Alarma deja inregistrata.', alarma: alarmaExistenta });
+    }
+
+    const alarmaNoua = new Alarma({ pacientId, tip, mesaj, puls, temperatura });
+    await alarmaNoua.save();
+    res.status(201).json({ mesaj: 'Alarma salvata!', alarma: alarmaNoua });
+  } catch (error) {
+    res.status(500).json({ mesaj: 'Eroare la salvarea alarmei.' });
+  }
+});
+
+// Preia istoricul de alarme pentru un pacient
+app.get('/api/alarme/:pacientId', async (req, res) => {
+  try {
+    const alarme = await Alarma.find({ pacientId: req.params.pacientId }).sort({ timestamp: -1 }).limit(50);
+    res.json(alarme);
+  } catch (error) {
+    res.status(500).json({ mesaj: 'Eroare la preluarea alarmelor.' });
+  }
+});
+
+// Marcheaza o alarma ca rezolvata
+app.put('/api/alarme/:id/rezolva', async (req, res) => {
+  try {
+    await Alarma.findByIdAndUpdate(req.params.id, { rezolvata: true });
+    res.json({ mesaj: 'Alarma marcata ca rezolvata.' });
+  } catch (error) {
+    res.status(500).json({ mesaj: 'Eroare la actualizarea alarmei.' });
   }
 });
 
