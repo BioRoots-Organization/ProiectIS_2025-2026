@@ -7,7 +7,6 @@ const mqtt = require('mqtt');
 
 const app = express();
 
-// Setare CORS explicita pentru a primi cereri de pe web si mobil (scapam de eroarea cu rosu)
 app.use(cors({ origin: '*' }));
 app.use(express.json()); 
 
@@ -15,12 +14,6 @@ app.use(express.json());
 // CONECTARE BAZA DE DATE (MONGODB)
 // ==========================================
 
-// LINK MODIFICAT: Varianta "Old School" fara +srv, care rezolva ETIMEOUT pe Render
-// ==========================================
-// CONECTARE BAZA DE DATE (MONGODB)
-// ==========================================
-
-// Așa e corect pentru GitHub public:
 const mongoURI = process.env.MONGO_URI ? process.env.MONGO_URI.trim() : '';
 const usesPlaceholderMongoUri =
   !mongoURI ||
@@ -61,7 +54,6 @@ async function connectToDatabase() {
 // 1. SCHEME BAZA DE DATE (MODELE)
 // ==========================================
 
-// Schema Senzori (IoT)
 const SenzorSchema = new mongoose.Schema({
   id_pacient: { type: String, required: true },
   puls_mediu: Number,
@@ -70,7 +62,6 @@ const SenzorSchema = new mongoose.Schema({
 });
 const Masuratoare = mongoose.model('Masuratoare', SenzorSchema, 'masuratori');
 
-// Schema Utilizatori (Auth)
 const UserSchema = new mongoose.Schema({
   nume: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -80,7 +71,6 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema, 'utilizatori');
 
-// Schema Pacienti (Fisa Medicala)
 const PacientSchema = new mongoose.Schema({
   nume: String,
   prenume: String,
@@ -104,12 +94,11 @@ const PacientSchema = new mongoose.Schema({
   temperatura: { type: Number, default: 0 },
   ecg: { type: String, default: 'Normal' },
   status: { type: String, default: 'ok' },
-  medicUid: String,    // Cine a creat fisa
-  pacientUid: String   // Contul de pacient asociat (dupa introducerea CNP-ului)
+  medicUid: String,
+  pacientUid: String
 });
 const Pacient = mongoose.model('Pacient', PacientSchema, 'pacienti');
 
-// Schema Recomandari Medicale
 const RecomandareSchema = new mongoose.Schema({
   pacientId: { type: String, required: true },
   medicUid: { type: String, required: true },
@@ -120,7 +109,6 @@ const RecomandareSchema = new mongoose.Schema({
 });
 const Recomandare = mongoose.model('Recomandare', RecomandareSchema, 'recomandari');
 
-// Schema Alarme
 const AlarmaSchema = new mongoose.Schema({
   pacientId: { type: String, required: true },
   tip: { type: String, enum: ['alarm', 'warn'], required: true },
@@ -137,7 +125,6 @@ const Alarma = mongoose.model('Alarma', AlarmaSchema, 'alarme');
 // 2. RUTE PENTRU IOT (SENZORI ARDUINO)
 // ==========================================
 
-// Preia ultima masuratoare (pentru o interogare rapida hardware daca e cazul)
 app.get('/api/date-pacient/:id', async (req, res) => {
   try {
     const idPacient = req.params.id;
@@ -153,7 +140,6 @@ app.get('/api/date-pacient/:id', async (req, res) => {
   }
 });
 
-// Salvare date trimise de Arduino
 app.post('/api/senzori', async (req, res) => {
   try {
     const dateNoi = new Masuratoare(req.body);
@@ -165,7 +151,6 @@ app.post('/api/senzori', async (req, res) => {
   }
 });
 
-// Preia tot istoricul de masuratori pentru a desena graficele in React
 app.get('/api/masuratori/:pacientId', async (req, res) => {
   try {
     const masuratori = await Masuratoare.find({ id_pacient: req.params.pacientId }).sort({ timestamp: 1 });
@@ -177,14 +162,18 @@ app.get('/api/masuratori/:pacientId', async (req, res) => {
 
 
 // ==========================================
-// 3. RUTE PENTRU AUTENTIFICARE (REACT)
+// 3. RUTE PENTRU AUTENTIFICARE
 // ==========================================
 
-// Inregistrare
+// ✅ MODIFICAT: Register cu CNP si legare automata de fisa medicala
 app.post('/api/register', async (req, res) => {
   try {
-    const { nume, email, parola, rol } = req.body;
-    
+    const { nume, email, parola, rol, cnp } = req.body;
+
+    if (!nume || !email || !parola || !rol) {
+      return res.status(400).json({ mesaj: "Toate câmpurile sunt obligatorii." });
+    }
+
     const userExistent = await User.findOne({ email });
     if (userExistent) {
       return res.status(400).json({ mesaj: "Email-ul este deja folosit!" });
@@ -192,14 +181,35 @@ app.post('/api/register', async (req, res) => {
 
     const userNou = new User({ nume, email, parola, rol });
     await userNou.save();
-    
-    res.status(201).json({ mesaj: "Cont creat cu succes!", utilizator: userNou });
+
+    // Daca e pacient si a dat CNP, cauta fisa si leaga contul automat
+    let fisaGasita = false;
+    if (rol === 'pacient' && cnp) {
+      const fisa = await Pacient.findOne({ cnp: cnp.trim() });
+      if (fisa) {
+        fisa.pacientUid = userNou._id.toString();
+        await fisa.save();
+        fisaGasita = true;
+        console.log(`✅ Cont pacient legat de fisa: ${userNou._id} → fisa ${fisa._id}`);
+      } else {
+        console.log(`⚠️  CNP ${cnp} nu are fisa asociata inca.`);
+      }
+    }
+
+    res.status(201).json({
+      mesaj: fisaGasita
+        ? "Cont creat și asociat fișei medicale cu succes!"
+        : "Cont creat cu succes!",
+      utilizator: userNou,
+      fisaGasita,
+    });
+
   } catch (error) {
+    console.error("Eroare /api/register:", error);
     res.status(500).json({ mesaj: "Eroare la crearea contului." });
   }
 });
 
-// Logare
 app.post('/api/login', async (req, res) => {
   try {
     const { email, parola, rol_cerut } = req.body;
@@ -224,13 +234,10 @@ app.post('/api/login', async (req, res) => {
 // 4. RUTE PENTRU PACIENTI (FISA MEDICALA)
 // ==========================================
 
-// Medicul preia lista cu toti pacientii lui
 app.get('/api/pacienti/:medicUid', async (req, res) => {
   try {
-    // Folosim .lean() pentru a lucra cu obiecte simple, mai rapid
     const pacienti = await Pacient.find({ medicUid: req.params.medicUid }).lean();
 
-    // Pentru fiecare pacient, căutăm cea mai recentă măsurătoare pentru a afișa date live
     const pacientiActualizati = await Promise.all(pacienti.map(async (pacient) => {
       const ultimaMasuratoare = await Masuratoare.findOne({ id_pacient: pacient._id.toString() }).sort({ timestamp: -1 });
       
@@ -241,7 +248,7 @@ app.get('/api/pacienti/:medicUid', async (req, res) => {
           temperatura: ultimaMasuratoare.temperatura_medie || pacient.temperatura,
         };
       }
-      return pacient; // Returnează pacientul original dacă nu are măsurători
+      return pacient;
     }));
     res.json(pacientiActualizati);
   } catch (error) {
@@ -249,12 +256,22 @@ app.get('/api/pacienti/:medicUid', async (req, res) => {
   }
 });
 
-// Medicul creaza o fisa noua pentru pacient
+// ✅ MODIFICAT: Returneaza si _id-ul fișei dupa creare (pentru ESP32)
 app.post('/api/pacienti', async (req, res) => {
   try {
     const pacientNou = new Pacient(req.body);
     await pacientNou.save();
-    res.status(201).json({ mesaj: "Fișă pacient creată!", pacient: pacientNou });
+
+    console.log(`\n======================================================`);
+    console.log(`🔑 [ID FISA PENTRU ESP32]: ${pacientNou._id.toString()}`);
+    console.log(`Pune acest ID in codul ESP32 la PACIENT_ID !`);
+    console.log(`======================================================\n`);
+
+    res.status(201).json({ 
+      mesaj: "Fișă pacient creată!", 
+      pacient: pacientNou,
+      idEsp32: pacientNou._id.toString()  // trimis explicit catre frontend
+    });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({ mesaj: "Există deja un pacient cu acest CNP în sistem!" });
@@ -263,7 +280,6 @@ app.post('/api/pacienti', async (req, res) => {
   }
 });
 
-// Preia datele unei fise specifice (dupa _id)
 app.get('/api/pacient-detalii/:id', async (req, res) => {
   try {
     const fisa = await Pacient.findById(req.params.id);
@@ -274,7 +290,6 @@ app.get('/api/pacient-detalii/:id', async (req, res) => {
   }
 });
 
-// Actualizeaza o fisa (Edit)
 app.put('/api/pacienti/:id', async (req, res) => {
   try {
     const pacientActualizat = await Pacient.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -284,7 +299,6 @@ app.put('/api/pacienti/:id', async (req, res) => {
   }
 });
 
-// Sterge o fisa (Delete)
 app.delete('/api/pacienti/:id', async (req, res) => {
   try {
     await Pacient.findByIdAndDelete(req.params.id);
@@ -294,7 +308,6 @@ app.delete('/api/pacienti/:id', async (req, res) => {
   }
 });
 
-// Legarea unui cont de pacient de fisa lui medicala (dupa CNP)
 app.post('/api/link-pacient', async (req, res) => {
   try {
     const { cnp, uid } = req.body;
@@ -312,7 +325,6 @@ app.post('/api/link-pacient', async (req, res) => {
   }
 });
 
-// Pacientul isi preia fisa folosind ID-ul contului lui (uid)
 app.get('/api/pacient-fisa/:uid', async (req, res) => {
   try {
     const fisa = await Pacient.findOne({ pacientUid: req.params.uid });
@@ -330,7 +342,6 @@ app.get('/api/pacient-fisa/:uid', async (req, res) => {
 // 5. RUTE PENTRU RECOMANDARI
 // ==========================================
 
-// Adauga o recomandare
 app.post('/api/recomandari', async (req, res) => {
   try {
     const recNoua = new Recomandare(req.body);
@@ -341,7 +352,6 @@ app.post('/api/recomandari', async (req, res) => {
   }
 });
 
-// Preia recomandarile unui pacient
 app.get('/api/recomandari/:pacientId', async (req, res) => {
   try {
     const recomandari = await Recomandare.find({ pacientId: req.params.pacientId }).sort({ timestamp: -1 });
@@ -356,18 +366,15 @@ app.get('/api/recomandari/:pacientId', async (req, res) => {
 // 6. RUTE PENTRU ALARME
 // ==========================================
 
-// Salveaza o alarma noua (apelata de frontend cand detecteaza valori in afara limitelor)
 app.post('/api/alarme', async (req, res) => {
   try {
     const { pacientId, tip, mesaj, puls, temperatura } = req.body;
 
-    // Verifica daca exista deja o alarma activa (nerezolvata) de acelasi tip pentru acest pacient
-    // ca sa nu salvam duplicate la fiecare refresh de 5 secunde
     const alarmaExistenta = await Alarma.findOne({ 
       pacientId, 
       tip, 
       rezolvata: false,
-      timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // ultima 5 minute
+      timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
     });
 
     if (alarmaExistenta) {
@@ -382,7 +389,6 @@ app.post('/api/alarme', async (req, res) => {
   }
 });
 
-// Preia istoricul de alarme pentru un pacient
 app.get('/api/alarme/:pacientId', async (req, res) => {
   try {
     const alarme = await Alarma.find({ pacientId: req.params.pacientId }).sort({ timestamp: -1 }).limit(50);
@@ -392,7 +398,6 @@ app.get('/api/alarme/:pacientId', async (req, res) => {
   }
 });
 
-// Marcheaza o alarma ca rezolvata
 app.put('/api/alarme/:id/rezolva', async (req, res) => {
   try {
     await Alarma.findByIdAndUpdate(req.params.id, { rezolvata: true });
@@ -404,10 +409,9 @@ app.put('/api/alarme/:id/rezolva', async (req, res) => {
 
 
 // ==========================================
-// 6. RUTE ADMINISTRATOR
+// 7. RUTE ADMINISTRATOR
 // ==========================================
 
-// Dashboard sumar pentru administrator
 app.get('/api/admin/overview', async (req, res) => {
   try {
     const [
@@ -444,7 +448,6 @@ app.get('/api/admin/overview', async (req, res) => {
   }
 });
 
-// Lista utilizatorilor pentru administrator
 app.get('/api/admin/users', async (req, res) => {
   try {
     const users = await User.find()
@@ -457,7 +460,6 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
-// Administratorul poate schimba rolul unui utilizator
 app.put('/api/admin/users/:id/role', async (req, res) => {
   try {
     const { rol } = req.body;
@@ -484,14 +486,12 @@ app.put('/api/admin/users/:id/role', async (req, res) => {
   }
 });
 
-// Administratorul poate vedea toate fisele pacientilor, cu date despre medic
 app.get('/api/admin/pacienti', async (req, res) => {
   try {
     const pacienti = await Pacient.find().sort({ nume: 1, prenume: 1 }).lean();
     const medici = await User.find({ rol: 'medic' }).select('nume');
     const mapMedici = new Map(medici.map((m) => [String(m._id), m.nume]));
 
-    // Căutăm cea mai recentă măsurătoare pentru fiecare pacient, pentru a avea date LIVE
     const pacientiCuMedic = await Promise.all(pacienti.map(async (p) => {
       const ultimaMasuratoare = await Masuratoare.findOne({ id_pacient: p._id.toString() }).sort({ timestamp: -1 });
 
@@ -512,7 +512,7 @@ app.get('/api/admin/pacienti', async (req, res) => {
 
 
 // ==========================================
-// 7. DATE DEMO PENTRU DEZVOLTARE
+// 8. DATE DEMO PENTRU DEZVOLTARE
 // ==========================================
 
 async function seedDevelopmentData() {
@@ -522,24 +522,9 @@ async function seedDevelopmentData() {
   }
 
   const [adminUser, medicUser, pacientUser] = await User.create([
-    {
-      nume: 'Admin Demo',
-      email: 'admin@demo.ro',
-      parola: 'admin123',
-      rol: 'admin',
-    },
-    {
-      nume: 'Dr. Ionescu',
-      email: 'medic@demo.ro',
-      parola: 'medic123',
-      rol: 'medic',
-    },
-    {
-      nume: 'Maria Popescu',
-      email: 'pacient@demo.ro',
-      parola: 'pacient123',
-      rol: 'pacient',
-    },
+    { nume: 'Admin Demo', email: 'admin@demo.ro', parola: 'admin123', rol: 'admin' },
+    { nume: 'Dr. Ionescu', email: 'medic@demo.ro', parola: 'medic123', rol: 'medic' },
+    { nume: 'Maria Popescu', email: 'pacient@demo.ro', parola: 'pacient123', rol: 'pacient' },
   ]);
 
   const fisaPacient = await Pacient.create({
@@ -570,24 +555,9 @@ async function seedDevelopmentData() {
   });
 
   await Masuratoare.insertMany([
-    {
-      id_pacient: fisaPacient._id.toString(),
-      puls_mediu: 71,
-      temperatura_medie: 36.5,
-      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
-    },
-    {
-      id_pacient: fisaPacient._id.toString(),
-      puls_mediu: 74,
-      temperatura_medie: 36.7,
-      timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
-    },
-    {
-      id_pacient: fisaPacient._id.toString(),
-      puls_mediu: 76,
-      temperatura_medie: 36.6,
-      timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000),
-    },
+    { id_pacient: fisaPacient._id.toString(), puls_mediu: 71, temperatura_medie: 36.5, timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000) },
+    { id_pacient: fisaPacient._id.toString(), puls_mediu: 74, temperatura_medie: 36.7, timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000) },
+    { id_pacient: fisaPacient._id.toString(), puls_mediu: 76, temperatura_medie: 36.6, timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000) },
   ]);
 
   await Recomandare.create({
@@ -601,7 +571,7 @@ async function seedDevelopmentData() {
   console.log('✅ Date demo create pentru admin, medic si pacient.');
   console.log('\n======================================================');
   console.log(`🔑 [ID PACIENT PENTRU MQTT]: ${fisaPacient._id.toString()}`);
-  console.log('Folosiți acest ID în MQTT Explorer la "id_pacient" !');
+  console.log('Folosiți acest ID în codul ESP32 la PACIENT_ID !');
   console.log('======================================================\n');
 }
 
@@ -616,21 +586,11 @@ async function startServer() {
       await seedDevelopmentData();
     }
 
-    // ==========================================
-    // 8. INTEGRARE MQTT BROKER
-    // ==========================================
-
-    // Folosim un broker public gratuit pentru testare.
-    // Pentru producție, îți poți face cont pe HiveMQ Cloud (gratuit) și pui aici URL-ul lor.
-    
-    // const mqttBrokerUrl = 'mqtt://test.mosquitto.org';
     const mqttBrokerUrl = 'mqtt://broker.hivemq.com';
-    
     const mqttClient = mqtt.connect(mqttBrokerUrl);
 
     mqttClient.on('connect', () => {
       console.log(`📡 Conectat la brokerul MQTT: ${mqttBrokerUrl}`);
-      // Ne abonăm la topicul pe care senzorii hardware vor trimite datele
       mqttClient.subscribe('sanatate/senzori/date', (err) => {
         if (err) console.error('❌ Eroare la abonare MQTT:', err);
         else console.log('📡 Abonat cu succes la topicul "sanatate/senzori/date"');
@@ -639,11 +599,8 @@ async function startServer() {
 
     mqttClient.on('message', async (topic, message) => {
       try {
-        // Convertim mesajul (care vine ca Buffer/bytes) în format JSON (text)
         const dateSenzor = JSON.parse(message.toString());
         console.log(`📥 [MQTT] Date primite pe ${topic}:`, dateSenzor);
-
-        // Salvăm datele în baza de date MongoDB (folosind Modelul tău "Masuratoare")
         const masuratoareNoua = new Masuratoare(dateSenzor);
         await masuratoareNoua.save();
         console.log('✅ [MQTT] Date salvate în baza de date cu succes!');
