@@ -4,12 +4,14 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+const SERVER_URL = "https://beckend-medical.onrender.com";
 
 interface DateSenzori {
   puls_mediu: number | string;
@@ -17,68 +19,47 @@ interface DateSenzori {
   mesaj?: string;
 }
 
-interface FisaPacient {
-  _id: string;
-  pacientUid: string;
-  nume: string;
-  prenume: string;
-}
-
 export default function HomeScreen() {
   const [dateSenzori, setDateSenzori] = useState<DateSenzori | null>(null);
+  const [numePacient, setNumePacient] = useState("");
   const [loading, setLoading] = useState(true);
+  const [fisaGasita, setFisaGasita] = useState(true);
   const router = useRouter();
+
+  const fetchDate = async () => {
+    try {
+      const user = await getLoggedUser();
+      if (!user?._id) return;
+
+      setNumePacient(user.nume || "Pacient");
+
+      const fisaResponse = await axios.get(
+        `${SERVER_URL}/api/pacient-fisa/${user._id}`
+      );
+      const fisa = fisaResponse.data;
+
+      if (!fisa?._id) {
+        setFisaGasita(false);
+        setDateSenzori({ puls_mediu: "--", temperatura_medie: "--" });
+        return;
+      }
+
+      setFisaGasita(true);
+      const dateResponse = await axios.get<DateSenzori>(
+        `${SERVER_URL}/api/date-pacient/${fisa._id}`
+      );
+      setDateSenzori(dateResponse.data);
+    } catch (error: any) {
+      setFisaGasita(false);
+      setDateSenzori({ puls_mediu: "--", temperatura_medie: "--" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogOut = async () => {
     await removeLoggedUser();
     router.replace("/login");
-  };
-
-  const fetchDate = async () => {
-    try {
-      setLoading(true);
-
-      const user = await getLoggedUser();
-
-      if (!user || !user._id) {
-        setDateSenzori({
-          puls_mediu: "--",
-          temperatura_medie: "--",
-          mesaj: "Nu exista utilizator logat.",
-        });
-        return;
-      }
-
-      const fisaResponse = await axios.get<FisaPacient>(
-        `https://beckend-medical.onrender.com/api/pacient-fisa/${user._id}`,
-      );
-
-      const fisa = fisaResponse.data;
-
-      if (!fisa || !fisa._id) {
-        setDateSenzori({
-          puls_mediu: "--",
-          temperatura_medie: "--",
-          mesaj: "Nu exista fisa asociata acestui pacient.",
-        });
-        return;
-      }
-
-      const dateResponse = await axios.get<DateSenzori>(
-        `https://beckend-medical.onrender.com/api/date-pacient/${fisa._id}`,
-      );
-
-      setDateSenzori(dateResponse.data);
-    } catch (error: any) {
-      console.log("Eroare server:", error.message);
-      setDateSenzori({
-        puls_mediu: "--",
-        temperatura_medie: "--",
-        mesaj: "Eroare la conectare cu serverul.",
-      });
-    } finally {
-      setLoading(false);
-    }
   };
 
   useEffect(() => {
@@ -88,108 +69,148 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.titlu}>Monitorizare Pacient</Text>
+    <SafeAreaView style={stiluri.safeArea}>
 
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.icon}>❤️</Text>
-          <View>
-            <Text style={styles.label}>Puls Cardiac</Text>
-            <Text style={styles.valoare}>
-              {dateSenzori?.puls_mediu ?? "--"} bpm
-            </Text>
-          </View>
+      {/* Header */}
+      <View style={stiluri.header}>
+        <View>
+          <Text style={stiluri.salut}>Bună ziua! 👋</Text>
+          <Text style={stiluri.nume}>{numePacient}</Text>
         </View>
-
-        <View style={[styles.row, { marginTop: 30 }]}>
-          <Text style={styles.icon}>🌡️</Text>
-          <View>
-            <Text style={styles.label}>Temperatura Corp</Text>
-            <Text style={styles.valoare}>
-              {dateSenzori?.temperatura_medie ?? "--"} °C
-            </Text>
-          </View>
-        </View>
-
-        {dateSenzori?.mesaj && (
-          <Text style={styles.info}>{dateSenzori.mesaj}</Text>
-        )}
+        <TouchableOpacity style={stiluri.butonLogout} onPress={handleLogOut}>
+          <Text style={stiluri.butonLogoutText}>Ieșire</Text>
+        </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.buton} onPress={fetchDate}>
-        <Text style={styles.textButon}>Refresh</Text>
-      </TouchableOpacity>
+      {/* Continut */}
+      {loading ? (
+        <View style={stiluri.centrat}>
+          <ActivityIndicator size="large" color="#3498db" />
+          <Text style={stiluri.loadingText}>Se încarcă datele...</Text>
+        </View>
+      ) : !fisaGasita ? (
+        <View style={stiluri.centrat}>
+          <Text style={{ fontSize: 48, marginBottom: 16 }}>🏥</Text>
+          <Text style={stiluri.fisaLipsaTitlu}>Fișă medicală inexistentă</Text>
+          <Text style={stiluri.fisaLipsaSubtitlu}>
+            Medicul tău nu a creat încă fișa ta medicală. Revino după consultație.
+          </Text>
+        </View>
+      ) : (
+        <View style={stiluri.continut}>
 
-      <TouchableOpacity style={styles.buton} onPress={handleLogOut}>
-        <Text style={styles.textButon}>LogOut</Text>
-      </TouchableOpacity>
+          {/* Card puls */}
+          <View style={stiluri.card}>
+            <View style={stiluri.cardIconWrap}>
+              <Text style={stiluri.cardIcon}>❤️</Text>
+            </View>
+            <Text style={stiluri.cardLabel}>Puls Cardiac</Text>
+            <Text style={stiluri.cardValoare}>
+              {dateSenzori?.puls_mediu ?? "--"}
+              <Text style={stiluri.cardUnit}> bpm</Text>
+            </Text>
+          </View>
 
-      {loading && (
-        <ActivityIndicator style={{ marginTop: 20 }} color="#3498db" />
+          {/* Card temperatura */}
+          <View style={stiluri.card}>
+            <View style={stiluri.cardIconWrap}>
+              <Text style={stiluri.cardIcon}>🌡️</Text>
+            </View>
+            <Text style={stiluri.cardLabel}>Temperatură Corp</Text>
+            <Text style={stiluri.cardValoare}>
+              {dateSenzori?.temperatura_medie ?? "--"}
+              <Text style={stiluri.cardUnit}> °C</Text>
+            </Text>
+          </View>
+
+          {/* Status live */}
+          <View style={stiluri.liveWrap}>
+            <View style={stiluri.liveDot} />
+            <Text style={stiluri.liveText}>Actualizare automată la 5 secunde</Text>
+          </View>
+
+        </View>
       )}
-    </ScrollView>
+
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    backgroundColor: "#f4f7f6",
+const stiluri = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: "#f4f8fc" },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  salut: { fontSize: 14, color: "#8b98a7" },
+  nume: { fontSize: 22, fontWeight: "800", color: "#16324f", marginTop: 2 },
+  butonLogout: {
+    backgroundColor: "#fde8e8",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  butonLogoutText: { color: "#c0392b", fontWeight: "700", fontSize: 14 },
+
+  centrat: {
+    flex: 1,
     justifyContent: "center",
-    padding: 20,
+    alignItems: "center",
+    padding: 32,
   },
-  titlu: {
-    fontSize: 26,
-    fontWeight: "bold",
-    marginBottom: 30,
-    color: "#2c3e50",
-    marginTop: 50,
+  loadingText: { marginTop: 12, fontSize: 15, color: "#6b7a90" },
+  fisaLipsaTitlu: { fontSize: 20, fontWeight: "700", color: "#16324f", marginBottom: 8, textAlign: "center" },
+  fisaLipsaSubtitlu: { fontSize: 14, color: "#8b98a7", textAlign: "center", lineHeight: 22 },
+
+  continut: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    gap: 16,
   },
+
   card: {
     backgroundColor: "#fff",
-    padding: 30,
-    borderRadius: 25,
-    width: "100%",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#102a43",
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  row: {
+  cardIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#f0f4f8",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  cardIcon: { fontSize: 30 },
+  cardLabel: { fontSize: 14, color: "#8b98a7", fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
+  cardValoare: { fontSize: 48, fontWeight: "800", color: "#16324f" },
+  cardUnit: { fontSize: 20, fontWeight: "400", color: "#8b98a7" },
+
+  liveWrap: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 8,
   },
-  icon: {
-    fontSize: 45,
-    marginRight: 20,
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#27ae60",
   },
-  label: {
-    fontSize: 16,
-    color: "#7f8c8d",
-  },
-  valoare: {
-    fontSize: 30,
-    fontWeight: "bold",
-    color: "#2c3e50",
-  },
-  info: {
-    marginTop: 20,
-    color: "#3498db",
-    fontStyle: "italic",
-    textAlign: "center",
-  },
-  buton: {
-    marginTop: 40,
-    backgroundColor: "#3498db",
-    paddingVertical: 15,
-    paddingHorizontal: 40,
-    borderRadius: 15,
-  },
-  textButon: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
+  liveText: { fontSize: 13, color: "#8b98a7" },
 });

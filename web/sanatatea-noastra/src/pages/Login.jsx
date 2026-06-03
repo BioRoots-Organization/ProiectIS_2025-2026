@@ -7,54 +7,70 @@ const BG_IMAGE = 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w
 function Login() {
   const [email, setEmail] = useState('')
   const [parola, setParola] = useState('')
+  const [confirmaParola, setConfirmaParola] = useState('')
   const [nume, setNume] = useState('')
-  const [rol, setRol] = useState('medic')
+  const [cnp, setCnp] = useState('')
   const [showParola, setShowParola] = useState(false)
   const [eroare, setEroare] = useState('')
   const [loading, setLoading] = useState(false)
   const [modRegistrare, setModRegistrare] = useState(false)
   const navigate = useNavigate()
 
+  // ══ LOGIN ══════════════════════════════════════════════
   const handleLogin = async () => {
     if (!email || !parola) { setEroare('Completează email-ul și parola.'); return }
     if (!email.includes('@')) { setEroare('Email-ul nu este valid.'); return }
+
     setLoading(true); setEroare('')
     try {
-      const response = await api.post('/login', { email, parola, rol_cerut: rol })
-      const date = response.data.utilizator
-      if (date.rol !== rol) { setEroare(`Acest cont este de tip "${date.rol}", nu "${rol}".`); setLoading(false); return }
+      // ✅ Nu mai trimitem rol_cerut — serverul determina rolul automat
+      const response = await api.post('/login', { email, parola })
+      const user = response.data.utilizator
+
       sessionStorage.setItem('autentificat', 'true')
-      sessionStorage.setItem('rol', date.rol)
-      sessionStorage.setItem('uid', date._id)
-      sessionStorage.setItem('nume', date.nume)
-      if (date.rol === 'medic') navigate('/medic')
-      else if (date.rol === 'admin') navigate('/admin')
-      else {
-        try { await api.get(`/pacient-fisa/${date._id}`); sessionStorage.setItem('fisaConfigurata', 'true'); navigate('/pacient') }
-        catch { navigate('/configurare') }
-      }
+      sessionStorage.setItem('rol', user.rol)
+      sessionStorage.setItem('uid', user._id)
+      sessionStorage.setItem('nume', user.nume)
+
+      // ✅ Redirectionare in functie de rol — fara pagina intermediara
+      if (user.rol === 'medic') navigate('/medic')
+      else if (user.rol === 'admin') navigate('/admin')
+      else navigate('/pacient')
+
     } catch (err) {
-      setEroare(err.response?.data?.mesaj || 'Nu ne-am putut conecta la server.')
+      setEroare(err.response?.data?.mesaj || 'Email sau parolă greșite.')
     }
     setLoading(false)
   }
 
+  // ══ REGISTER ═══════════════════════════════════════════
   const handleRegistrare = async () => {
-    if (!nume) { setEroare('Completează numele.'); return }
-    if (!email || !parola) { setEroare('Completează email-ul și parola.'); return }
-    if (!email.includes('@')) { setEroare('Email-ul nu este valid.'); return }
+    if (!nume.trim()) { setEroare('Completează numele complet.'); return }
+    if (!email || !email.includes('@')) { setEroare('Email-ul nu este valid.'); return }
     if (parola.length < 6) { setEroare('Parola trebuie să aibă minim 6 caractere.'); return }
+    if (parola !== confirmaParola) { setEroare('Parolele nu coincid.'); return }
+    if (cnp.trim().length !== 13 || !/^\d+$/.test(cnp.trim())) {
+      setEroare('CNP-ul trebuie să aibă exact 13 cifre.')
+      return
+    }
+
     setLoading(true); setEroare('')
     try {
-      const response = await api.post('/register', { nume, email, parola, rol })
-      const userCreat = response.data.utilizator
-      sessionStorage.setItem('autentificat', 'true')
-      sessionStorage.setItem('rol', rol)
-      sessionStorage.setItem('uid', userCreat._id)
-      sessionStorage.setItem('nume', nume)
-      if (rol === 'medic') navigate('/medic')
-      else if (rol === 'admin') navigate('/admin')
-      else navigate('/configurare')
+      // ✅ Rol fix: pacient + CNP pentru legare automata de fisa
+      await api.post('/register', {
+        nume: nume.trim(),
+        email: email.trim().toLowerCase(),
+        parola,
+        rol: 'pacient',
+        cnp: cnp.trim(),
+      })
+
+      // ✅ Dupa register, mergem la login
+      setModRegistrare(false)
+      setEroare('')
+      setNume(''); setCnp(''); setParola(''); setConfirmaParola('')
+      setEroare('Cont creat cu succes! Loghează-te acum.')
+
     } catch (err) {
       setEroare(err.response?.data?.mesaj || 'Acest email este deja înregistrat.')
     }
@@ -92,132 +108,153 @@ function Login() {
       <div style={{ position: 'fixed', top: -100, right: -100, width: 700, height: 700, borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.28) 0%, transparent 70%)', zIndex: 1, pointerEvents: 'none' }} />
       <div style={{ position: 'fixed', bottom: -150, left: -150, width: 800, height: 800, borderRadius: '50%', background: 'radial-gradient(circle, rgba(167,139,250,0.18) 0%, transparent 70%)', zIndex: 1, pointerEvents: 'none' }} />
 
-      {/* Wrapper centrat pe tot ecranul */}
-      <div style={{
-        position: 'relative', zIndex: 2,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: '100%', height: '100%',
-      }}>
-        {/* Container interior — lățime fixă, cele două coloane lipite */}
-        <div style={{
-          display: 'flex', alignItems: 'center',
-          gap: 60,
-          width: '85%', maxWidth: 1100,
-          animation: 'fadeInUp 0.6s ease both',
-        }}>
+      <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 60, width: '85%', maxWidth: 1100, animation: 'fadeInUp 0.6s ease both' }}>
 
-          {/* Stânga — tagline */}
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 20, padding: '8px 18px', marginBottom: 32 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a78bfa', display: 'inline-block', animation: 'pulse-ring 2s ease infinite' }} />
-              <span style={{ fontSize: 14, color: '#c4b5fd', fontWeight: 500 }}>Monitorizare în timp real</span>
+          {/* Coloana stanga — branding */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(139,92,246,0.5)' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              </div>
+              <div>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: '#fff', letterSpacing: '-0.3px' }}>Sănătatea Noastră</div>
+                <div style={{ fontSize: 13, color: 'rgba(196,181,253,0.5)' }}>Sistem de monitorizare medicală</div>
+              </div>
             </div>
 
-            <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 64, color: '#fff', lineHeight: 1.08, letterSpacing: '-2px', margin: '0 0 24px' }}>
-              Îngrijire modernă,<br />
-              <em style={{ color: '#c4b5fd', fontStyle: 'italic' }}>conectată inteligent.</em>
-            </h1>
+            <div>
+              <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 42, color: '#fff', lineHeight: 1.15, margin: '0 0 16px', letterSpacing: '-1px' }}>
+                {modRegistrare ? 'Creare cont pacient' : 'Bine ai revenit'}
+              </h1>
+              <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7, margin: 0 }}>
+                {modRegistrare
+                  ? 'Creează-ți contul cu CNP-ul primit de la medicul tău pentru a-ți accesa fișa medicală.'
+                  : 'Accesează platforma de monitorizare a stării de sănătate în timp real.'}
+              </p>
+            </div>
 
-            <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.45)', lineHeight: 1.65, margin: '0 0 40px' }}>
-              Monitorizare ECG, temperatură și puls în timp real pentru pacienți și medici — oriunde, oricând.
-            </p>
-
-            <div style={{ opacity: 0.3 }}>
-              <svg viewBox="0 0 500 50" width="380" height="50">
-                <polyline points="0,25 60,25 80,25 90,5 100,45 110,8 120,25 180,25 240,25 260,25 270,5 280,45 290,8 300,25 360,25 420,25 440,25 450,5 460,45 470,8 480,25 500,25"
-                  fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round"/>
-              </svg>
+            {/* Info box */}
+            <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 14, padding: '16px 20px' }}>
+              <p style={{ fontSize: 13, color: 'rgba(196,181,253,0.7)', margin: 0, lineHeight: 1.6 }}>
+                {modRegistrare
+                  ? '⚕️ Conturile de medic sunt create de administrator. Înregistrarea este disponibilă doar pentru pacienți.'
+                  : '🔒 Sistemul determină automat rolul tău după autentificare.'}
+              </p>
             </div>
           </div>
 
-          {/* Dreapta — formular */}
-          <div style={{ width: 440, flexShrink: 0 }}>
-            <div style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 24, padding: '40px 36px' }}>
+          {/* Coloana dreapta — formular */}
+          <div style={{ width: 420, background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '36px 32px', boxShadow: '0 32px 80px rgba(0,0,0,0.4)' }}>
 
-              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: '#fff', marginBottom: 6 }}>
-                {modRegistrare ? 'Cont nou' : 'Bun venit înapoi'}
-              </div>
-              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 26 }}>
-                Portal Clinica "Sănătatea Noastră"
-              </p>
+            <h2 style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, color: '#fff', margin: '0 0 28px', letterSpacing: '-0.3px' }}>
+              {modRegistrare ? 'Înregistrare' : 'Autentificare'}
+            </h2>
 
-              {/* Selector rol */}
-              <div style={{ display: 'flex', background: 'rgba(0,0,0,0.25)', borderRadius: 13, padding: 4, marginBottom: 24, gap: 3 }}>
-                {['medic', 'pacient', 'admin'].map(r => (
-                  <button key={r} onClick={() => setRol(r)} style={{
-                    flex: 1, padding: '11px 0', fontSize: 14, fontWeight: 500, border: 'none',
-                    borderRadius: 10, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                    background: rol === r ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'transparent',
-                    color: rol === r ? '#fff' : 'rgba(255,255,255,0.4)',
-                    transition: 'all 0.2s',
-                    boxShadow: rol === r ? '0 2px 10px rgba(139,92,246,0.4)' : 'none',
-                  }}>
-                    {r === 'admin' ? 'Admin' : r.charAt(0).toUpperCase() + r.slice(1)}
-                  </button>
-                ))}
-              </div>
-
-              {modRegistrare && (
-                <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>Nume complet</label>
-                  <input type="text" placeholder="ex: Dr. Ionescu" value={nume} onChange={e => setNume(e.target.value)} style={inputStyle} />
-                </div>
-              )}
-
+            {/* Campuri register */}
+            {modRegistrare && (
               <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Email</label>
-                <input type="email" placeholder="exemplu@email.com" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+                <label style={labelStyle}>Nume complet</label>
+                <input type="text" placeholder="ex: Ion Popescu" value={nume} onChange={e => setNume(e.target.value)} style={inputStyle} />
               </div>
+            )}
 
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Parolă</label>
-                <div style={{ position: 'relative' }}>
-                  <input type={showParola ? 'text' : 'password'} placeholder="••••••••" value={parola}
-                    onChange={e => setParola(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (modRegistrare ? handleRegistrare() : handleLogin())}
-                    style={{ ...inputStyle, paddingRight: 48 }}
-                  />
-                  <button onClick={() => setShowParola(!showParola)} style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', padding: 0 }}>
-                    {showParola
-                      ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    }
-                  </button>
-                </div>
-              </div>
-
-              {eroare && (
-                <div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(220,38,38,0.15)', border: '1px solid rgba(220,38,38,0.35)', borderRadius: 11 }}>
-                  <p style={{ fontSize: 14, color: '#fca5a5', margin: 0 }}>{eroare}</p>
-                </div>
-              )}
-
-              <button onClick={modRegistrare ? handleRegistrare : handleLogin} disabled={loading}
-                style={{ width: '100%', padding: '15px', fontSize: 16, background: loading ? 'rgba(139,92,246,0.4)' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, boxShadow: '0 4px 20px rgba(139,92,246,0.4)', transition: 'all 0.2s' }}
-                onMouseEnter={e => { if (!loading) { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 6px 28px rgba(139,92,246,0.55)' }}}
-                onMouseLeave={e => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = '0 4px 20px rgba(139,92,246,0.4)' }}
-              >
-                {loading ? 'Se procesează...' : modRegistrare ? 'Creează cont' : 'Intră în cont'}
-              </button>
-
-              <button onClick={() => { setModRegistrare(!modRegistrare); setEroare('') }}
-                style={{ width: '100%', marginTop: 12, padding: '10px', background: 'none', border: 'none', fontSize: 14, color: 'rgba(196,181,253,0.6)', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}
-              >
-                {modRegistrare ? 'Ai deja cont? Intră în cont' : 'Nu ai cont? Creează unul acum'}
-              </button>
-
-              <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.2)', marginTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 16 }}>
-                © 2026 Clinica Sănătatea Noastră · Timișoara
-              </p>
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Email</label>
+              <input type="email" placeholder="exemplu@email.com" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
             </div>
-          </div>
 
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Parolă</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showParola ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={parola}
+                  onChange={e => setParola(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (modRegistrare ? handleRegistrare() : handleLogin())}
+                  style={{ ...inputStyle, paddingRight: 48 }}
+                />
+                <button onClick={() => setShowParola(!showParola)} style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', padding: 0 }}>
+                  {showParola
+                    ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  }
+                </button>
+              </div>
+            </div>
+
+            {/* Confirma parola — doar la register */}
+            {modRegistrare && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Confirmă parola</label>
+                <input type="password" placeholder="••••••••" value={confirmaParola} onChange={e => setConfirmaParola(e.target.value)} style={inputStyle} />
+              </div>
+            )}
+
+            {/* CNP — doar la register */}
+            {modRegistrare && (
+              <div style={{ marginBottom: 22 }}>
+                <label style={labelStyle}>CNP</label>
+                <input
+                  type="text"
+                  placeholder="13 cifre"
+                  value={cnp}
+                  onChange={e => setCnp(e.target.value.replace(/[^0-9]/g, '').slice(0, 13))}
+                  style={inputStyle}
+                  maxLength={13}
+                />
+                {cnp.length > 0 && (
+                  <p style={{ fontSize: 12, color: cnp.length === 13 ? '#6ee7b7' : '#fca5a5', margin: '6px 0 0' }}>
+                    {cnp.length}/13 cifre {cnp.length === 13 ? '✓' : ''}
+                  </p>
+                )}
+                <p style={{ fontSize: 12, color: 'rgba(196,181,253,0.5)', margin: '6px 0 0', fontStyle: 'italic' }}>
+                  CNP-ul leagă contul tău de fișa medicală creată de medic.
+                </p>
+              </div>
+            )}
+
+            {!modRegistrare && <div style={{ marginBottom: 22 }} />}
+
+            {/* Eroare / succes */}
+            {eroare && (
+              <div style={{
+                marginBottom: 16,
+                padding: '12px 16px',
+                background: eroare.includes('succes') ? 'rgba(22,163,74,0.15)' : 'rgba(220,38,38,0.15)',
+                border: `1px solid ${eroare.includes('succes') ? 'rgba(22,163,74,0.35)' : 'rgba(220,38,38,0.35)'}`,
+                borderRadius: 11
+              }}>
+                <p style={{ fontSize: 14, color: eroare.includes('succes') ? '#6ee7b7' : '#fca5a5', margin: 0 }}>{eroare}</p>
+              </div>
+            )}
+
+            {/* Buton principal */}
+            <button
+              onClick={modRegistrare ? handleRegistrare : handleLogin}
+              disabled={loading}
+              style={{ width: '100%', padding: '15px', fontSize: 16, background: loading ? 'rgba(139,92,246,0.4)' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 600, boxShadow: '0 4px 20px rgba(139,92,246,0.4)', transition: 'all 0.2s' }}
+              onMouseEnter={e => { if (!loading) { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 6px 28px rgba(139,92,246,0.55)' }}}
+              onMouseLeave={e => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = '0 4px 20px rgba(139,92,246,0.4)' }}
+            >
+              {loading ? 'Se procesează...' : modRegistrare ? 'Creează cont' : 'Intră în cont'}
+            </button>
+
+            {/* Toggle login/register */}
+            <button
+              onClick={() => { setModRegistrare(!modRegistrare); setEroare(''); setParola(''); setConfirmaParola(''); setCnp('') }}
+              style={{ width: '100%', marginTop: 12, padding: '10px', background: 'none', border: 'none', fontSize: 14, color: 'rgba(196,181,253,0.6)', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}
+            >
+              {modRegistrare ? 'Ai deja cont? Intră în cont' : 'Nu ai cont? Înregistrează-te'}
+            </button>
+
+          </div>
         </div>
       </div>
 
       <style>{`
         @keyframes fadeInUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes pulse-ring { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.35; transform:scale(0.65); } }
         input::placeholder { color: rgba(255,255,255,0.25) !important; }
       `}</style>
     </div>
