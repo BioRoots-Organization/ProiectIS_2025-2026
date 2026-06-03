@@ -35,7 +35,6 @@ function TextArea({ label, placeholder, value, onChange }) {
   )
 }
 
-// Calculează statusul real al unui pacient pe baza limitelor personalizate definite de medic
 function calculeazaStatus(pacient) {
   const puls = pacient.puls
   const temp = pacient.temperatura
@@ -82,10 +81,12 @@ function DashboardMedic() {
   const [tabForm, setTabForm] = useState('demografice')
   const [pacientMonitorizat, setPacientMonitorizat] = useState(null)
   const [dateMonitorizare, setDateMonitorizare] = useState({ puls: [], temperatura: [] })
+  // ✅ NOU: state pentru ID-ul ESP32 dupa creare fisa
+  const [idEsp32Nou, setIdEsp32Nou] = useState(null)
+  const [copiat, setCopiat] = useState(false)
   const navigate = useNavigate()
   const alarmeTrimisteRef = React.useRef(new Set())
 
-  // Salveaza alarma in baza de date (cu deduplicare)
   const salveazaAlarma = async (pacient, tip, statusCalculat) => {
     const key = `${pacient._id}-${tip}`
     if (alarmeTrimisteRef.current.has(key)) return
@@ -116,13 +117,11 @@ function DashboardMedic() {
       const dateNoi = response.data
       setPacienti(dateNoi)
 
-      // Verifica fiecare pacient si salveaza alarma daca e cazul
       dateNoi.forEach(p => {
         const status = calculeazaStatus(p)
         if (status === 'alarm') salveazaAlarma(p, 'alarm', status)
         else if (status === 'warn') salveazaAlarma(p, 'warn', status)
         else {
-          // Pacientul e normal - sterge din set ca sa poata fi salvata din nou daca se agraveza
           alarmeTrimisteRef.current.delete(`${p._id}-alarm`)
           alarmeTrimisteRef.current.delete(`${p._id}-warn`)
         }
@@ -138,7 +137,6 @@ function DashboardMedic() {
     return () => clearInterval(interval)
   }, [])
 
-  // Încarcă datele live pentru pacientul monitorizat
   useEffect(() => {
     if (!pacientMonitorizat) return
     const incarcaMonitorizare = async () => {
@@ -160,6 +158,7 @@ function DashboardMedic() {
     return () => clearInterval(interval)
   }, [pacientMonitorizat])
 
+  // ✅ MODIFICAT: handleSalveaza afiseaza ID-ul ESP32 dupa creare
   const handleSalveaza = async () => {
     try {
       const uid = sessionStorage.getItem('uid')
@@ -190,6 +189,7 @@ function DashboardMedic() {
       }
       const response = await api.post('/pacienti', datePacientNou)
       const pacientAdaugat = response.data.pacient
+
       for (let i = 8; i <= 16; i++) {
         await api.post('/senzori', {
           id_pacient: pacientAdaugat._id,
@@ -198,14 +198,31 @@ function DashboardMedic() {
           timestamp: new Date(new Date().setHours(i, 0, 0, 0))
         })
       }
+
       await incarcaPacienti()
-      setModalDeschis(false)
-      setFormData(campGol)
-      setTabForm('demografice')
+      // ✅ In loc sa inchidem modalul, afisam ID-ul ESP32
+      setIdEsp32Nou(pacientAdaugat._id)
+      setTabForm('success')
     } catch (err) {
       console.error('Eroare la salvare:', err)
       alert('Eroare la salvare. Verifica consola.')
     }
+  }
+
+  // ✅ Functie copiere ID in clipboard
+  const copiazaId = () => {
+    navigator.clipboard.writeText(idEsp32Nou)
+    setCopiat(true)
+    setTimeout(() => setCopiat(false), 2000)
+  }
+
+  // ✅ Inchide modalul si reseteaza tot
+  const inchideModal = () => {
+    setModalDeschis(false)
+    setFormData(campGol)
+    setTabForm('demografice')
+    setIdEsp32Nou(null)
+    setCopiat(false)
   }
 
   const navItems = [
@@ -214,7 +231,6 @@ function DashboardMedic() {
     { id: 'monitorizare', label: 'Monitorizare Live', icon: <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
   ]
 
-  // Calculează statusul real pentru fiecare pacient
   const pacientiCuStatus = pacienti.map(p => ({ ...p, statusCalculat: calculeazaStatus(p) }))
   const alarmeActive = pacientiCuStatus.filter(p => p.statusCalculat === 'alarm')
   const avertizari = pacientiCuStatus.filter(p => p.statusCalculat === 'warn')
@@ -246,7 +262,7 @@ function DashboardMedic() {
           </div>
 
           <nav style={{ flex: 1, padding: '14px 10px' }}>
-            {navItems.map((item, i) => (
+            {navItems.map((item) => (
               <button key={item.id} onClick={() => setPaginaActiva(item.id)}
                 style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 10,
@@ -261,7 +277,6 @@ function DashboardMedic() {
               >
                 {item.icon}
                 {item.label}
-                {/* Badge număr alarme în sidebar */}
                 {item.id === 'alarme' && alarmeActive.length > 0 && (
                   <span style={{ marginLeft: 'auto', background: '#ef4444', color: '#fff', fontSize: 17, fontWeight: 700, borderRadius: 20, padding: '2px 7px' }}>
                     {alarmeActive.length}
@@ -308,7 +323,7 @@ function DashboardMedic() {
               {paginaActiva === 'monitorizare' && 'Monitorizare Live'}
             </h1>
           </div>
-          <button onClick={() => setModalDeschis(true)}
+          <button onClick={() => { setModalDeschis(true); setTabForm('demografice'); setIdEsp32Nou(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', color: '#fff', border: 'none', borderRadius: 11, fontSize: 18, fontWeight: 500, fontFamily: "'DM Sans', sans-serif", cursor: 'pointer', boxShadow: '0 4px 15px rgba(139,92,246,0.4)', transition: 'all 0.2s' }}
             onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(139,92,246,0.55)' }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(139,92,246,0.4)' }}
@@ -435,7 +450,6 @@ function DashboardMedic() {
                 ))}
               </div>
 
-              {/* Alarme critice */}
               {alarmeActive.length > 0 && (
                 <div style={{ ...gs, borderRadius: 16, overflow: 'hidden', marginBottom: 20, border: '1px solid rgba(239,68,68,0.3)' }}>
                   <div style={{ padding: '14px 22px', borderBottom: '1px solid rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.1)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -473,7 +487,6 @@ function DashboardMedic() {
                 </div>
               )}
 
-              {/* Avertizări */}
               {avertizari.length > 0 && (
                 <div style={{ ...gs, borderRadius: 16, overflow: 'hidden', marginBottom: 20, border: '1px solid rgba(251,191,36,0.25)' }}>
                   <div style={{ padding: '14px 22px', borderBottom: '1px solid rgba(251,191,36,0.15)', background: 'rgba(251,191,36,0.08)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -522,7 +535,6 @@ function DashboardMedic() {
           {/* ===== PAGINA MONITORIZARE LIVE ===== */}
           {paginaActiva === 'monitorizare' && (
             <div style={{ animation: 'fadeInUp 0.4s ease both' }}>
-              {/* Selector pacient */}
               <div style={{ ...gs, borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
                 <div style={{ fontSize: 17, color: 'rgba(196,181,253,0.6)', marginBottom: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Selectează pacientul de monitorizat:</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -546,7 +558,6 @@ function DashboardMedic() {
 
               {pacientMonitorizat ? (
                 <>
-                  {/* Header pacient monitorizat */}
                   <div style={{ ...gs, borderRadius: 16, padding: '18px 24px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                       <div style={{ width: 42, height: 42, background: 'linear-gradient(135deg, rgba(139,92,246,0.4), rgba(109,40,217,0.3))', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, fontWeight: 700, color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.35)' }}>
@@ -565,7 +576,6 @@ function DashboardMedic() {
                     </div>
                   </div>
 
-                  {/* Valori curente */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
                     {[
                       { label: 'Puls curent', value: `${pacientMonitorizat.puls}`, unit: 'bpm', bg: 'rgba(239,68,68,0.12)', ok: pacientMonitorizat.puls >= (pacientMonitorizat.pulsMin || 60) && pacientMonitorizat.puls <= (pacientMonitorizat.pulsMax || 100) },
@@ -584,7 +594,6 @@ function DashboardMedic() {
                     ))}
                   </div>
 
-                  {/* Grafice live */}
                   {[
                     { title: 'Evoluție Puls (astăzi)', data: dateMonitorizare.puls, color: '#a78bfa', domain: [50, 130], name: 'Puls (bpm)', refMin: pacientMonitorizat.pulsMin, refMax: pacientMonitorizat.pulsMax },
                     { title: 'Evoluție Temperatură (astăzi)', data: dateMonitorizare.temperatura, color: '#fb923c', domain: [35, 40], name: 'Temp (°C)', refMin: pacientMonitorizat.tempMin, refMax: pacientMonitorizat.tempMax },
@@ -627,31 +636,82 @@ function DashboardMedic() {
         </div>
       </div>
 
-      {/* Modal Pacient Nou */}
+      {/* ===== MODAL PACIENT NOU ===== */}
       {modalDeschis && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, animation: 'fadeIn 0.2s ease' }}>
           <div style={{ background: '#1a0a2e', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 18, width: '100%', maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.6)', animation: 'fadeInUp 0.3s ease' }}>
+
+            {/* Header modal */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <div style={{ width: 36, height: 36, background: tabForm === 'success' ? '#16a34a' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {tabForm === 'success'
+                    ? <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    : <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  }
                 </div>
-                <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: '#fff' }}>Pacient Nou</span>
+                <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 20, color: '#fff' }}>
+                  {tabForm === 'success' ? 'Fișă creată cu succes!' : 'Pacient Nou'}
+                </span>
               </div>
-              <button onClick={() => setModalDeschis(false)} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', padding: '6px', display: 'flex' }}>
+              <button onClick={inchideModal} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 9, cursor: 'pointer', color: 'rgba(255,255,255,0.5)', padding: '6px', display: 'flex' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
 
-            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '0 24px' }}>
-              {[{ id: 'demografice', label: 'Date Demografice' }, { id: 'medicale', label: 'Date Medicale' }, { id: 'valori', label: 'Valori Normale' }].map(tab => (
-                <button key={tab.id} onClick={() => setTabForm(tab.id)}
-                  style={{ padding: '11px 14px', fontSize: 18, fontWeight: 500, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", borderBottom: tabForm === tab.id ? '2px solid #8b5cf6' : '2px solid transparent', color: tabForm === tab.id ? '#c4b5fd' : 'rgba(255,255,255,0.4)', marginBottom: -1 }}
-                >{tab.label}</button>
-              ))}
-            </div>
+            {/* Tab-uri (ascunse pe success) */}
+            {tabForm !== 'success' && (
+              <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '0 24px' }}>
+                {[{ id: 'demografice', label: 'Date Demografice' }, { id: 'medicale', label: 'Date Medicale' }, { id: 'valori', label: 'Valori Normale' }].map(tab => (
+                  <button key={tab.id} onClick={() => setTabForm(tab.id)}
+                    style={{ padding: '11px 14px', fontSize: 18, fontWeight: 500, border: 'none', background: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", borderBottom: tabForm === tab.id ? '2px solid #8b5cf6' : '2px solid transparent', color: tabForm === tab.id ? '#c4b5fd' : 'rgba(255,255,255,0.4)', marginBottom: -1 }}
+                  >{tab.label}</button>
+                ))}
+              </div>
+            )}
 
+            {/* Continut */}
             <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+
+              {/* ✅ ECRAN SUCCESS CU ID ESP32 */}
+              {tabForm === 'success' && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, paddingTop: 10 }}>
+                  <div style={{ width: 64, height: 64, background: 'rgba(22,163,74,0.2)', border: '1px solid rgba(22,163,74,0.4)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, margin: 0 }}>
+                      Fișa pacientului a fost creată. Copiază ID-ul de mai jos și pune-l în codul ESP32 la <strong style={{ color: '#c4b5fd' }}>PACIENT_ID</strong>.
+                    </p>
+                  </div>
+
+                  {/* ID-ul ESP32 */}
+                  <div style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(139,92,246,0.4)', borderRadius: 12, padding: '16px 20px' }}>
+                    <div style={{ fontSize: 13, color: 'rgba(196,181,253,0.6)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10, fontWeight: 600 }}>
+                      ID Dispozitiv IoT (ESP32)
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <code style={{ flex: 1, fontSize: 15, color: '#e9d5ff', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                        {idEsp32Nou}
+                      </code>
+                      <button onClick={copiazaId}
+                        style={{ flexShrink: 0, padding: '8px 16px', background: copiat ? 'rgba(22,163,74,0.3)' : 'rgba(139,92,246,0.3)', border: `1px solid ${copiat ? 'rgba(22,163,74,0.5)' : 'rgba(139,92,246,0.5)'}`, borderRadius: 8, cursor: 'pointer', color: copiat ? '#6ee7b7' : '#c4b5fd', fontSize: 14, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s', whiteSpace: 'nowrap' }}
+                      >
+                        {copiat ? '✓ Copiat!' : 'Copiază'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ width: '100%', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: 10, padding: '12px 16px' }}>
+                    <p style={{ fontSize: 14, color: '#fcd34d', margin: 0, lineHeight: 1.6 }}>
+                      ⚠ Pune acest ID în fișierul <strong>esp32_sanatate.ino</strong> la linia:<br/>
+                      <code style={{ fontSize: 13, color: '#fef3c7' }}>const char* PACIENT_ID = "{idEsp32Nou}";</code>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {tabForm === 'demografice' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                   <Field label="Nume" placeholder="ex: Popescu" value={formData.nume} onChange={e => setFormData({ ...formData, nume: e.target.value })} />
@@ -689,24 +749,34 @@ function DashboardMedic() {
               )}
             </div>
 
+            {/* Footer modal */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <button onClick={() => setModalDeschis(false)} style={{ padding: '8px 14px', fontSize: 18, color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>Anulează</button>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {tabForm !== 'demografice' && (
-                  <button onClick={() => setTabForm(tabForm === 'valori' ? 'medicale' : 'demografice')}
-                    style={{ padding: '8px 16px', fontSize: 18, color: '#c4b5fd', background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>← Înapoi</button>
-                )}
-                {tabForm !== 'valori' ? (
-                  <button onClick={() => setTabForm(tabForm === 'demografice' ? 'medicale' : 'valori')}
-                    style={{ padding: '8px 16px', fontSize: 18, color: '#fff', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: '0 4px 12px rgba(139,92,246,0.4)' }}>Continuă →</button>
-                ) : (
-                  <button onClick={handleSalveaza}
-                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', fontSize: 18, color: '#fff', background: '#16a34a', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    Salvează Pacient
-                  </button>
-                )}
-              </div>
+              {tabForm === 'success' ? (
+                <button onClick={inchideModal}
+                  style={{ width: '100%', padding: '10px', fontSize: 18, color: '#fff', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
+                  Închide
+                </button>
+              ) : (
+                <>
+                  <button onClick={inchideModal} style={{ padding: '8px 14px', fontSize: 18, color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>Anulează</button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {tabForm !== 'demografice' && (
+                      <button onClick={() => setTabForm(tabForm === 'valori' ? 'medicale' : 'demografice')}
+                        style={{ padding: '8px 16px', fontSize: 18, color: '#c4b5fd', background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>← Înapoi</button>
+                    )}
+                    {tabForm !== 'valori' ? (
+                      <button onClick={() => setTabForm(tabForm === 'demografice' ? 'medicale' : 'valori')}
+                        style={{ padding: '8px 16px', fontSize: 18, color: '#fff', background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: '0 4px 12px rgba(139,92,246,0.4)' }}>Continuă →</button>
+                    ) : (
+                      <button onClick={handleSalveaza}
+                        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', fontSize: 18, color: '#fff', background: '#16a34a', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Salvează Pacient
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

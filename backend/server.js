@@ -219,7 +219,8 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ mesaj: "Email sau parolă greșite!" });
     }
 
-    if (user.rol !== rol_cerut) {
+    // rol_cerut e optional - folosit doar de web, nu si de mobil
+    if (rol_cerut && user.rol !== rol_cerut) {
       return res.status(403).json({ mesaj: `Acest cont este de tip "${user.rol}", nu "${rol_cerut}".` });
     }
 
