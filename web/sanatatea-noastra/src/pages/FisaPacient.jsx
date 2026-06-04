@@ -19,6 +19,7 @@ function FisaPacient() {
   const [newRec, setNewRec] = useState({ tip: '', durata: '', indicatii: '' })
   const [datePuls, setDatePuls] = useState([])
   const [dateTemperatura, setDateTemperatura] = useState([])
+  const [dateECG, setDateECG] = useState([])
 
   useEffect(() => {
     const incarcaDate = async () => {
@@ -35,6 +36,14 @@ function FisaPacient() {
           }
           setDatePuls(masuratori.map(m => ({ ora: m.ora || new Date(m.timestamp).getHours() + ':00', valoare: m.puls || m.puls_mediu })))
           setDateTemperatura(masuratori.map(m => ({ ora: m.ora || new Date(m.timestamp).getHours() + ':00', valoare: m.temperatura || m.temperatura_medie })))
+          // ECG din ultima masuratore
+          const ultimaMasuratoare = masuratori[masuratori.length - 1]
+          if (ultimaMasuratoare?.ecg && typeof ultimaMasuratoare.ecg === 'string' && ultimaMasuratoare.ecg.startsWith('[')) {
+            try {
+              const ecgArray = JSON.parse(ultimaMasuratoare.ecg)
+              if (ecgArray.length > 0) setDateECG(ecgArray.map((valoare, index) => ({ index, valoare })))
+            } catch (e) {}
+          }
         }
         if (datePacient) setPacient(datePacient)
         const snapR = await api.get(`/recomandari/${id}`)
@@ -243,7 +252,7 @@ function FisaPacient() {
 
           {/* Dreapta */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Grafice */}
+            {/* Grafice Puls si Temperatura - IDENTIC CU ORIGINALUL */}
             {[
               { title: 'Evoluție Puls', data: datePuls, color: '#a78bfa', domain: [60,110], name: 'Puls (bpm)', delay: '0s' },
               { title: 'Evoluție Temperatură', data: dateTemperatura, color: '#fb923c', domain: [35,39], name: 'Temperatură (°C)', delay: '0.08s' },
@@ -267,7 +276,32 @@ function FisaPacient() {
               </div>
             ))}
 
-            {/* Recomandări */}
+            {/* GRAFIC ECG NOU */}
+            <div style={{ ...gs, borderRadius: 16, padding: '20px 24px', animation: 'fadeInUp 0.4s ease 0.12s both' }}>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 19, color: '#fff', marginBottom: 18 }}>Fragment ECG (ultima înregistrare)</div>
+              {dateECG.length > 0 ? (
+                <ResponsiveContainer width="100%" height={190}>
+                  <LineChart data={dateECG}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="index" tick={false} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 17, fill: 'rgba(196,181,253,0.45)' }} axisLine={false} tickLine={false} domain={[0, 4095]} />
+                    <Tooltip content={({ active, payload }) => active && payload?.length ? (
+                      <div style={{ background: 'rgba(15,10,30,0.95)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 10, padding: '8px 14px' }}>
+                        <p style={{ color: 'rgba(196,181,253,0.6)', fontSize: 17, margin: '0 0 4px' }}>ECG</p>
+                        <p style={{ color: '#fff', fontSize: 19, fontWeight: 600, margin: 0 }}>{payload[0].value}</p>
+                      </div>
+                    ) : null} />
+                    <Line type="monotone" dataKey="valoare" stroke="#6ee7b7" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} name="ECG" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ height: 190, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <p style={{ fontSize: 17, color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>Nu există date ECG.<br/><span style={{ fontSize: 15 }}>Vor apărea după prima transmisie ESP32.</span></p>
+                </div>
+              )}
+            </div>
+
+            {/* Recomandări - IDENTIC CU ORIGINALUL */}
             <div style={{ ...gs, borderRadius: 16, padding: '20px 24px', animation: 'fadeInUp 0.4s ease 0.16s both' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <span style={{ fontFamily: "'DM Serif Display', serif", fontSize: 19, color: '#fff' }}>Recomandări Medic</span>

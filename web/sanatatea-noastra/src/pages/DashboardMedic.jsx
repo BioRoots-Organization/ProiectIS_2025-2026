@@ -181,23 +181,14 @@ function DashboardMedic() {
         pulsMax: parseInt(formData.pulsMax),
         tempMin: parseFloat(formData.tempMin),
         tempMax: parseFloat(formData.tempMax),
-        puls: 75,
-        temperatura: 36.6,
+        puls: 0,
+        temperatura: 0,
         ecg: 'Normal',
         status: 'ok',
         medicUid: uid,
       }
       const response = await api.post('/pacienti', datePacientNou)
       const pacientAdaugat = response.data.pacient
-
-      for (let i = 8; i <= 16; i++) {
-        await api.post('/senzori', {
-          id_pacient: pacientAdaugat._id,
-          puls_mediu: Math.floor(70 + Math.random() * 30),
-          temperatura_medie: parseFloat((36.2 + Math.random() * 1.5).toFixed(1)),
-          timestamp: new Date(new Date().setHours(i, 0, 0, 0))
-        })
-      }
 
       await incarcaPacienti()
       // ✅ In loc sa inchidem modalul, afisam ID-ul ESP32
