@@ -10,10 +10,6 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json()); 
 
-// ==========================================
-// CONECTARE BAZA DE DATE (MONGODB)
-// ==========================================
-
 const mongoURI = process.env.MONGO_URI ? process.env.MONGO_URI.trim() : '';
 const usesPlaceholderMongoUri =
   !mongoURI ||
@@ -50,14 +46,12 @@ async function connectToDatabase() {
   return 'memory';
 }
   
-// ==========================================
-// 1. SCHEME BAZA DE DATE (MODELE)
-// ==========================================
-
+// ✅ MODIFICAT: adaugat camp ecg in schema
 const SenzorSchema = new mongoose.Schema({
   id_pacient: { type: String, required: true },
   puls_mediu: Number,
   temperatura_medie: Number,
+  ecg: { type: String, default: null },
   timestamp: { type: Date, default: Date.now }
 });
 const Masuratoare = mongoose.model('Masuratoare', SenzorSchema, 'masuratori');
@@ -120,16 +114,10 @@ const AlarmaSchema = new mongoose.Schema({
 });
 const Alarma = mongoose.model('Alarma', AlarmaSchema, 'alarme');
 
-
-// ==========================================
-// 2. RUTE PENTRU IOT (SENZORI ARDUINO)
-// ==========================================
-
 app.get('/api/date-pacient/:id', async (req, res) => {
   try {
     const idPacient = req.params.id;
     const ultimaMasuratoare = await Masuratoare.findOne({ id_pacient: idPacient }).sort({ timestamp: -1 });
-    
     if (ultimaMasuratoare) {
       res.json(ultimaMasuratoare);
     } else {
@@ -160,12 +148,6 @@ app.get('/api/masuratori/:pacientId', async (req, res) => {
   }
 });
 
-
-// ==========================================
-// 3. RUTE PENTRU AUTENTIFICARE
-// ==========================================
-
-// ✅ MODIFICAT: Register cu CNP si legare automata de fisa medicala
 app.post('/api/register', async (req, res) => {
   try {
     const { nume, email, parola, rol, cnp } = req.body;
@@ -182,7 +164,6 @@ app.post('/api/register', async (req, res) => {
     const userNou = new User({ nume, email, parola, rol });
     await userNou.save();
 
-    // Daca e pacient si a dat CNP, cauta fisa si leaga contul automat
     let fisaGasita = false;
     if (rol === 'pacient' && cnp) {
       const fisa = await Pacient.findOne({ cnp: cnp.trim() });
@@ -197,9 +178,7 @@ app.post('/api/register', async (req, res) => {
     }
 
     res.status(201).json({
-      mesaj: fisaGasita
-        ? "Cont creat și asociat fișei medicale cu succes!"
-        : "Cont creat cu succes!",
+      mesaj: fisaGasita ? "Cont creat și asociat fișei medicale cu succes!" : "Cont creat cu succes!",
       utilizator: userNou,
       fisaGasita,
     });
@@ -219,7 +198,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ mesaj: "Email sau parolă greșite!" });
     }
 
-    // rol_cerut e optional - folosit doar de web, nu si de mobil
     if (rol_cerut && user.rol !== rol_cerut) {
       return res.status(403).json({ mesaj: `Acest cont este de tip "${user.rol}", nu "${rol_cerut}".` });
     }
@@ -229,11 +207,6 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ mesaj: "Eroare la logare." });
   }
 });
-
-
-// ==========================================
-// 4. RUTE PENTRU PACIENTI (FISA MEDICALA)
-// ==========================================
 
 app.get('/api/pacienti/:medicUid', async (req, res) => {
   try {
@@ -257,7 +230,6 @@ app.get('/api/pacienti/:medicUid', async (req, res) => {
   }
 });
 
-// ✅ MODIFICAT: Returneaza si _id-ul fișei dupa creare (pentru ESP32)
 app.post('/api/pacienti', async (req, res) => {
   try {
     const pacientNou = new Pacient(req.body);
@@ -271,7 +243,7 @@ app.post('/api/pacienti', async (req, res) => {
     res.status(201).json({ 
       mesaj: "Fișă pacient creată!", 
       pacient: pacientNou,
-      idEsp32: pacientNou._id.toString()  // trimis explicit catre frontend
+      idEsp32: pacientNou._id.toString()
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -338,11 +310,6 @@ app.get('/api/pacient-fisa/:uid', async (req, res) => {
   }
 });
 
-
-// ==========================================
-// 5. RUTE PENTRU RECOMANDARI
-// ==========================================
-
 app.post('/api/recomandari', async (req, res) => {
   try {
     const recNoua = new Recomandare(req.body);
@@ -361,11 +328,6 @@ app.get('/api/recomandari/:pacientId', async (req, res) => {
     res.status(500).json({ mesaj: "Eroare la preluarea recomandărilor." });
   }
 });
-
-
-// ==========================================
-// 6. RUTE PENTRU ALARME
-// ==========================================
 
 app.post('/api/alarme', async (req, res) => {
   try {
@@ -408,11 +370,6 @@ app.put('/api/alarme/:id/rezolva', async (req, res) => {
   }
 });
 
-
-// ==========================================
-// 7. RUTE ADMINISTRATOR
-// ==========================================
-
 app.get('/api/admin/overview', async (req, res) => {
   try {
     const [
@@ -451,9 +408,7 @@ app.get('/api/admin/overview', async (req, res) => {
 
 app.get('/api/admin/users', async (req, res) => {
   try {
-    const users = await User.find()
-      .select('-parola')
-      .sort({ data_creare: -1 });
+    const users = await User.find().select('-parola').sort({ data_creare: -1 });
     res.json(users);
   } catch (error) {
     console.error('Eroare /api/admin/users:', error);
@@ -470,11 +425,7 @@ app.put('/api/admin/users/:id/role', async (req, res) => {
       return res.status(400).json({ mesaj: 'Rol invalid.' });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { rol },
-      { new: true }
-    ).select('-parola');
+    const user = await User.findByIdAndUpdate(req.params.id, { rol }, { new: true }).select('-parola');
 
     if (!user) {
       return res.status(404).json({ mesaj: 'Utilizatorul nu a fost găsit.' });
@@ -510,11 +461,6 @@ app.get('/api/admin/pacienti', async (req, res) => {
     res.status(500).json({ mesaj: 'Eroare la preluarea pacienților pentru admin.', detalii: error.message });
   }
 });
-
-
-// ==========================================
-// 8. DATE DEMO PENTRU DEZVOLTARE
-// ==========================================
 
 async function seedDevelopmentData() {
   const existingUsers = await User.countDocuments();
@@ -576,9 +522,6 @@ async function seedDevelopmentData() {
   console.log('======================================================\n');
 }
 
-// ==========================================
-// START SERVER
-// ==========================================
 async function startServer() {
   try {
     const databaseMode = await connectToDatabase();

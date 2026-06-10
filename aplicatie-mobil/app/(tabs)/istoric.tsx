@@ -35,7 +35,6 @@ interface Alarma {
   timestamp: string;
 }
 
-// ✅ Grafic simplu fara librarii externe
 function GraficLinie({
   date,
   culoare,
@@ -58,7 +57,6 @@ function GraficLinie({
   const range = domainMax - domainMin || 1;
   const stepX = GRAF_WIDTH / (date.length - 1);
 
-  // Calculam punctele
   const puncte = date.map((val, i) => ({
     x: i * stepX,
     y: GRAF_HEIGHT - ((Math.min(Math.max(val, domainMin), domainMax) - domainMin) / range) * GRAF_HEIGHT,
@@ -66,7 +64,6 @@ function GraficLinie({
 
   return (
     <View style={{ width: GRAF_WIDTH, height: GRAF_HEIGHT, position: "relative" }}>
-      {/* Linii orizontale de referinta */}
       {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => (
         <View
           key={i}
@@ -81,7 +78,6 @@ function GraficLinie({
         />
       ))}
 
-      {/* Segmente de linie */}
       {puncte.slice(0, -1).map((p, i) => {
         const next = puncte[i + 1];
         const dx = next.x - p.x;
@@ -106,7 +102,6 @@ function GraficLinie({
         );
       })}
 
-      {/* Puncte */}
       {puncte.map((p, i) => (
         <View
           key={i}
@@ -131,7 +126,6 @@ export default function IstoricScreen() {
   const [alarme, setAlarme] = useState<Alarma[]>([]);
   const [loading, setLoading] = useState(true);
   const [eroare, setEroare] = useState("");
-  // ✅ Date ECG din ultima masurătoare
   const [dateECG, setDateECG] = useState<number[]>([]);
 
   const incarcaDate = async () => {
@@ -164,17 +158,17 @@ export default function IstoricScreen() {
       setMasuratori(masSort);
       setAlarme(alarmeRes.data);
 
-      // ✅ Extrage ECG din ultima masurătoare
-      if (masSort.length > 0 && masSort[0].ecg) {
-        try {
-          const ecgStr = masSort[0].ecg;
-          if (typeof ecgStr === "string" && ecgStr.startsWith("[")) {
-            const arr = JSON.parse(ecgStr);
-            if (Array.isArray(arr) && arr.length > 0) {
-              setDateECG(arr.slice(0, 100)); // max 100 puncte
+      // Extrage ECG din prima masurătoare care are date reale (nu toate 2048)
+      for (const m of masSort) {
+        if (m.ecg && typeof m.ecg === "string" && m.ecg.startsWith("[")) {
+          try {
+            const arr = JSON.parse(m.ecg);
+            if (Array.isArray(arr) && arr.length > 0 && arr.some((v: number) => v !== 2048)) {
+              setDateECG(arr.slice(0, 100));
+              break;
             }
-          }
-        } catch (e) {}
+          } catch (e) {}
+        }
       }
     } catch (err: any) {
       setEroare("Eroare la încărcarea datelor.");
@@ -215,14 +209,12 @@ export default function IstoricScreen() {
     );
   }
 
-  // Date pentru grafice — cronologic
   const masuratoriCronologic = [...masuratori].reverse();
   const datePuls = masuratoriCronologic.map(m => m.puls_mediu || 0);
   const dateTemp = masuratoriCronologic.map(m => m.temperatura_medie || 0);
 
   return (
     <SafeAreaView style={stiluri.safeArea}>
-      {/* Header */}
       <View style={stiluri.header}>
         <Text style={stiluri.titlu}>Istoric</Text>
         <TouchableOpacity onPress={incarcaDate}>
@@ -230,7 +222,6 @@ export default function IstoricScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Tab-uri */}
       <View style={stiluri.tabBar}>
         <TouchableOpacity
           style={[stiluri.tab, tabActiv === "valori" && stiluri.tabActiv]}
@@ -307,16 +298,11 @@ export default function IstoricScreen() {
               </View>
             ) : (
               <>
-                {/* Grafic Puls */}
                 <View style={stiluri.card}>
                   <Text style={stiluri.cardTitlu}>❤️ Evoluție Puls (bpm)</Text>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                    <Text style={stiluri.graficLabel}>
-                      Min: {Math.min(...datePuls)} bpm
-                    </Text>
-                    <Text style={stiluri.graficLabel}>
-                      Max: {Math.max(...datePuls)} bpm
-                    </Text>
+                    <Text style={stiluri.graficLabel}>Min: {Math.min(...datePuls)} bpm</Text>
+                    <Text style={stiluri.graficLabel}>Max: {Math.max(...datePuls)} bpm</Text>
                   </View>
                   <GraficLinie
                     date={datePuls}
@@ -334,16 +320,11 @@ export default function IstoricScreen() {
                   </View>
                 </View>
 
-                {/* Grafic Temperatura */}
                 <View style={stiluri.card}>
                   <Text style={stiluri.cardTitlu}>🌡️ Evoluție Temperatură (°C)</Text>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                    <Text style={stiluri.graficLabel}>
-                      Min: {Math.min(...dateTemp).toFixed(1)}°C
-                    </Text>
-                    <Text style={stiluri.graficLabel}>
-                      Max: {Math.max(...dateTemp).toFixed(1)}°C
-                    </Text>
+                    <Text style={stiluri.graficLabel}>Min: {Math.min(...dateTemp).toFixed(1)}°C</Text>
+                    <Text style={stiluri.graficLabel}>Max: {Math.max(...dateTemp).toFixed(1)}°C</Text>
                   </View>
                   <GraficLinie
                     date={dateTemp}
@@ -361,7 +342,6 @@ export default function IstoricScreen() {
                   </View>
                 </View>
 
-                {/* Grafic ECG */}
                 <View style={stiluri.card}>
                   <Text style={stiluri.cardTitlu}>📡 Fragment ECG (ultima înregistrare)</Text>
                   {dateECG.length >= 2 ? (
