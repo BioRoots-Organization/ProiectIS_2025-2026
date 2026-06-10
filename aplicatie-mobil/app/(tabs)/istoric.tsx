@@ -3,6 +3,7 @@ import axios from "axios";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,11 +13,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const SERVER_URL = "https://beckend-medical.onrender.com";
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const GRAF_WIDTH = SCREEN_WIDTH - 64;
+const GRAF_HEIGHT = 120;
 
 interface Masuratoare {
   _id: string;
   puls_mediu: number;
   temperatura_medie: number;
+  ecg?: string;
   timestamp: string;
 }
 
@@ -30,12 +35,104 @@ interface Alarma {
   timestamp: string;
 }
 
+// ✅ Grafic simplu fara librarii externe
+function GraficLinie({
+  date,
+  culoare,
+  domainMin,
+  domainMax,
+}: {
+  date: number[];
+  culoare: string;
+  domainMin: number;
+  domainMax: number;
+}) {
+  if (date.length < 2) {
+    return (
+      <View style={{ height: GRAF_HEIGHT, justifyContent: "center", alignItems: "center" }}>
+        <Text style={{ color: "#8b98a7", fontSize: 13 }}>Date insuficiente pentru grafic</Text>
+      </View>
+    );
+  }
+
+  const range = domainMax - domainMin || 1;
+  const stepX = GRAF_WIDTH / (date.length - 1);
+
+  // Calculam punctele
+  const puncte = date.map((val, i) => ({
+    x: i * stepX,
+    y: GRAF_HEIGHT - ((Math.min(Math.max(val, domainMin), domainMax) - domainMin) / range) * GRAF_HEIGHT,
+  }));
+
+  return (
+    <View style={{ width: GRAF_WIDTH, height: GRAF_HEIGHT, position: "relative" }}>
+      {/* Linii orizontale de referinta */}
+      {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => (
+        <View
+          key={i}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: frac * GRAF_HEIGHT,
+            height: 1,
+            backgroundColor: "rgba(0,0,0,0.06)",
+          }}
+        />
+      ))}
+
+      {/* Segmente de linie */}
+      {puncte.slice(0, -1).map((p, i) => {
+        const next = puncte[i + 1];
+        const dx = next.x - p.x;
+        const dy = next.y - p.y;
+        const lungime = Math.sqrt(dx * dx + dy * dy);
+        const unghi = Math.atan2(dy, dx) * (180 / Math.PI);
+
+        return (
+          <View
+            key={i}
+            style={{
+              position: "absolute",
+              left: p.x,
+              top: p.y,
+              width: lungime,
+              height: 2,
+              backgroundColor: culoare,
+              transformOrigin: "left center",
+              transform: [{ rotate: `${unghi}deg` }],
+            }}
+          />
+        );
+      })}
+
+      {/* Puncte */}
+      {puncte.map((p, i) => (
+        <View
+          key={i}
+          style={{
+            position: "absolute",
+            left: p.x - 4,
+            top: p.y - 4,
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: culoare,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
 export default function IstoricScreen() {
-  const [tabActiv, setTabActiv] = useState<"valori" | "alarme">("valori");
+  const [tabActiv, setTabActiv] = useState<"valori" | "alarme" | "grafice">("valori");
   const [masuratori, setMasuratori] = useState<Masuratoare[]>([]);
   const [alarme, setAlarme] = useState<Alarma[]>([]);
   const [loading, setLoading] = useState(true);
   const [eroare, setEroare] = useState("");
+  // ✅ Date ECG din ultima masurătoare
+  const [dateECG, setDateECG] = useState<number[]>([]);
 
   const incarcaDate = async () => {
     try {
@@ -66,6 +163,19 @@ export default function IstoricScreen() {
       );
       setMasuratori(masSort);
       setAlarme(alarmeRes.data);
+
+      // ✅ Extrage ECG din ultima masurătoare
+      if (masSort.length > 0 && masSort[0].ecg) {
+        try {
+          const ecgStr = masSort[0].ecg;
+          if (typeof ecgStr === "string" && ecgStr.startsWith("[")) {
+            const arr = JSON.parse(ecgStr);
+            if (Array.isArray(arr) && arr.length > 0) {
+              setDateECG(arr.slice(0, 100)); // max 100 puncte
+            }
+          }
+        } catch (e) {}
+      }
     } catch (err: any) {
       setEroare("Eroare la încărcarea datelor.");
     } finally {
@@ -105,6 +215,11 @@ export default function IstoricScreen() {
     );
   }
 
+  // Date pentru grafice — cronologic
+  const masuratoriCronologic = [...masuratori].reverse();
+  const datePuls = masuratoriCronologic.map(m => m.puls_mediu || 0);
+  const dateTemp = masuratoriCronologic.map(m => m.temperatura_medie || 0);
+
   return (
     <SafeAreaView style={stiluri.safeArea}>
       {/* Header */}
@@ -122,7 +237,15 @@ export default function IstoricScreen() {
           onPress={() => setTabActiv("valori")}
         >
           <Text style={[stiluri.tabText, tabActiv === "valori" && stiluri.tabTextActiv]}>
-            📊 Valori ({masuratori.length})
+            📋 Valori ({masuratori.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[stiluri.tab, tabActiv === "grafice" && stiluri.tabActiv]}
+          onPress={() => setTabActiv("grafice")}
+        >
+          <Text style={[stiluri.tabText, tabActiv === "grafice" && stiluri.tabTextActiv]}>
+            📈 Grafice
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -170,6 +293,100 @@ export default function IstoricScreen() {
               ))}
             </View>
           )
+        )}
+
+        {/* TAB GRAFICE */}
+        {tabActiv === "grafice" && (
+          <View>
+            {masuratori.length < 2 ? (
+              <View style={stiluri.cardGol}>
+                <Text style={stiluri.golTitlu}>Date insuficiente</Text>
+                <Text style={stiluri.golSubtitlu}>
+                  Sunt necesare cel puțin 2 măsurători pentru a afișa grafice.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {/* Grafic Puls */}
+                <View style={stiluri.card}>
+                  <Text style={stiluri.cardTitlu}>❤️ Evoluție Puls (bpm)</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                    <Text style={stiluri.graficLabel}>
+                      Min: {Math.min(...datePuls)} bpm
+                    </Text>
+                    <Text style={stiluri.graficLabel}>
+                      Max: {Math.max(...datePuls)} bpm
+                    </Text>
+                  </View>
+                  <GraficLinie
+                    date={datePuls}
+                    culoare="#e74c3c"
+                    domainMin={Math.min(...datePuls) - 5}
+                    domainMax={Math.max(...datePuls) + 5}
+                  />
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+                    <Text style={stiluri.graficOra}>
+                      {formatData(masuratoriCronologic[0].timestamp).split(",")[0]}
+                    </Text>
+                    <Text style={stiluri.graficOra}>
+                      {formatData(masuratoriCronologic[masuratoriCronologic.length - 1].timestamp).split(",")[0]}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Grafic Temperatura */}
+                <View style={stiluri.card}>
+                  <Text style={stiluri.cardTitlu}>🌡️ Evoluție Temperatură (°C)</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                    <Text style={stiluri.graficLabel}>
+                      Min: {Math.min(...dateTemp).toFixed(1)}°C
+                    </Text>
+                    <Text style={stiluri.graficLabel}>
+                      Max: {Math.max(...dateTemp).toFixed(1)}°C
+                    </Text>
+                  </View>
+                  <GraficLinie
+                    date={dateTemp}
+                    culoare="#e67e22"
+                    domainMin={Math.min(...dateTemp) - 0.5}
+                    domainMax={Math.max(...dateTemp) + 0.5}
+                  />
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+                    <Text style={stiluri.graficOra}>
+                      {formatData(masuratoriCronologic[0].timestamp).split(",")[0]}
+                    </Text>
+                    <Text style={stiluri.graficOra}>
+                      {formatData(masuratoriCronologic[masuratoriCronologic.length - 1].timestamp).split(",")[0]}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Grafic ECG */}
+                <View style={stiluri.card}>
+                  <Text style={stiluri.cardTitlu}>📡 Fragment ECG (ultima înregistrare)</Text>
+                  {dateECG.length >= 2 ? (
+                    <>
+                      <Text style={[stiluri.graficLabel, { marginBottom: 8 }]}>
+                        {dateECG.length} puncte înregistrate
+                      </Text>
+                      <GraficLinie
+                        date={dateECG}
+                        culoare="#27ae60"
+                        domainMin={0}
+                        domainMax={4095}
+                      />
+                    </>
+                  ) : (
+                    <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                      <Text style={stiluri.golSubtitlu}>
+                        Nu există date ECG disponibile. Vor apărea după prima transmisie de la ESP32.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
         )}
 
         {/* TAB ALARME */}
@@ -248,7 +465,7 @@ const stiluri = StyleSheet.create({
   },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 11, alignItems: "center" },
   tabActiv: { backgroundColor: "#fff", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
-  tabText: { fontSize: 13, color: "#6b7a90", fontWeight: "600" },
+  tabText: { fontSize: 12, color: "#6b7a90", fontWeight: "600" },
   tabTextActiv: { color: "#16324f" },
 
   scroll: { paddingHorizontal: 16, paddingBottom: 30 },
@@ -287,6 +504,9 @@ const stiluri = StyleSheet.create({
 
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
   badgeText: { fontSize: 12, fontWeight: "700" },
+
+  graficLabel: { fontSize: 12, color: "#8b98a7", fontWeight: "600" },
+  graficOra: { fontSize: 11, color: "#a0aec0" },
 
   alarmaCard: {
     borderRadius: 14,
